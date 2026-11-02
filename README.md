@@ -2,8 +2,8 @@
 
 The recovery image for HakiOS on the Samsung Galaxy S9 (SM-G960F, starlte, Exynos 9810).
 HakiOS (XNU with iOS 16.5 user space) boots from BOOT; RECOVERY holds this image, which is
-our safety net and debug station: it reads (and can create) APFS, and it collects the logs a
-HakiOS run leaves behind.
+our safety net and debug station: it reads HakiOS' persistent `/private/var` (journaled HFS Plus
+on USERDATA), reads (and can create) APFS, and it collects the logs a HakiOS run leaves behind.
 
 It is **stock TWRP 3.7.0_9-0 for starlte with files added to its ramdisk**. Nothing else
 changes: the kernel, the Exynos DT table and every boot-image header field except
@@ -19,13 +19,15 @@ Added to the ramdisk (nothing else):
 |---|---|
 | `/sbin/scion` | the helper, below (POSIX sh, runs under TWRP's mksh) |
 | `/sbin/scion-bootlogs`, `/init.recovery.samsungexynos9810.rc` | boot-time log copy, below |
+| `/sbin/hfsfuse` | FUSE HFS Plus/HFSX driver (read-only, journaled volumes too), static aarch64, libfuse 3.16.2 built in |
+| `/sbin/hfsdump` | HFS Plus reader without FUSE: volume header, `stat`, `read` (file contents or a directory's names) |
 | `/sbin/apfs-fuse` | FUSE APFS driver (read-only), static aarch64, libfuse 3.16.2 built in |
 | `/sbin/apfs-extract` | APFS reader without FUSE: `vols`, `ls`, `stat`, `cat`, `get`, `tar` |
 | `/sbin/apfsutil` | container/volume info |
 | `/sbin/mkapfs` (+ `mkfs.apfs`) | makes an APFS container (apfsprogs) |
 | `/sbin/apfsck` (+ `fsck.apfs`) | APFS checker (apfsprogs) |
 | `/sbin/apfs-label`, `/sbin/apfs-snap` | apfsprogs: volume labels, snapshots |
-| `/scion/`, `/scion/apfs/` | mount points |
+| `/scion/`, `/scion/hfs/`, `/scion/apfs/` | mount points |
 
 All binaries are static aarch64 (musl), so they need neither bionic nor TWRP's linker.
 
@@ -33,9 +35,11 @@ All binaries are static aarch64 (musl), so they need neither bionic nor TWRP's l
 
     scion logs [DIR]        last_kmsg, pstore, Samsung reset info, dmesg, reserved log
                             regions -> DIR/<timestamp>/ + .tar.gz (default /tmp/scion-logs)
-    scion mountvar [VOL]    apfs-fuse USERDATA read-only at /scion/apfs, /scion/var -> its var dir
+    scion mountvar [VOL]    USERDATA read-only: HFS Plus with hfsfuse at /scion/hfs, or APFS with
+                            apfs-fuse at /scion/apfs; /scion/var -> its var dir
     scion umountvar
-    scion pull [DIR]        CrashReporter logs (/scion/var/mobile/Library/Logs/CrashReporter) -> tar.gz
+    scion pull [DIR]        CrashReporter logs (/scion/var/mobile/Library/Logs/CrashReporter) and
+                            /scion/var/hakios-runs -> tar.gz
     scion flash IMG [BOOT]  dd IMG to BOOT, sha256 read-back; refuses every other partition
     scion info
 
@@ -50,14 +54,23 @@ Details:
   (`log_kernel`, `log_pstore`, ...) with their addresses, and dumps them raw if `/dev/mem`
   exists. It doesn't on TWRP's kernel (`CONFIG_DEVMEM` is off), so the ESS kernel-log region is
   reachable only through last_kmsg/pstore; that is stated in `reserved-log-regions.txt`.
-  Logs go to `/tmp` (RAM) because /data is not mountable when it holds APFS; `adb pull` the
+  Logs go to `/tmp` (RAM) because /data is not mountable when it holds HakiOS' volume; `adb pull` the
   printed `.tar.gz`.
-- **mountvar** tries USERDATA, then SYSTEM (`SCION_VAR_PARTS` overrides), volumes 0-4
-  (or the one given), and takes the first volume whose root is the var tree (`mobile/`) or
-  contains `private/var/mobile`. apfs-fuse shows a volume under `<mnt>/root`, so `/scion/var`
-  is a symlink to the right directory under `/scion/apfs/root`. Read-only.
-- **pull** uses `/scion/var` when it can, else reads the volume directly with
-  `apfs-extract ... tar` (no FUSE needed).
+- **mountvar** tries USERDATA, then SYSTEM (`SCION_VAR_PARTS` overrides), and tells the
+  filesystem by its signature, the volume starting at the partition's first byte (no partition
+  map inside): `H+` or `HX` at byte 1024 is HFS Plus, `NXSB` at byte 32 an APFS container.
+  HakiOS keeps `/private/var` on USERDATA as a journaled, case-sensitive HFS Plus (HFSX) volume,
+  the whole partition (`tools/mkdatavol.py --userdata` in hackios-xnu-kernel); its root is
+  `/private/var` itself (`mobile/`, `hakios-runs`). That is mounted with hfsfuse at
+  `/scion/hfs`. TWRP's kernel has no HFS Plus driver (`# CONFIG_HFSPLUS_FS is not set` in its
+  embedded config), hence FUSE. hfsfuse is read-only and does not replay the journal: if HakiOS
+  stopped without unmounting (the journal is not empty) hfsfuse refuses, and mountvar mounts
+  again with `--force` and says that what HakiOS wrote last may be missing. For APFS it tries
+  volumes 0-4 (or the one given) with apfs-fuse at `/scion/apfs`, which shows a volume under
+  `<mnt>/root`. Either way the first volume whose root is the var tree (`mobile/`) or contains
+  `private/var/mobile` wins, and `/scion/var` is a symlink to its var directory. Read-only.
+- **pull** uses `/scion/var` when it can, else reads the volume directly (no FUSE needed): HFS
+  Plus with `hfsdump`, file by file, APFS with `apfs-extract ... tar`.
 - **flash** writes only BOOT: the name argument must be `BOOT`, the by-name link is resolved and
   the kernel's `PARTNAME` for the resolved device must be `BOOT`, the image must fit, and must
   start with `ANDROID!` (override with `SCION_FORCE=1`). After `dd ... conv=fsync` it drops the
@@ -80,7 +93,9 @@ Needs bash, python3, curl, unzip, and (for the apfsprogs build) git and make; x8
     # apfsprogs, static aarch64 with zig (downloaded, sha256-pinned)
     scripts/build-apfsprogs.sh                       # -> work/apfsprogs-aarch64/
     # apfs-fuse/apfs-extract/apfsutil: see third_party/apfs-fuse/ (Alpine, docker)
-    APFS_BIN=/path/to/apfs-fuse/bin/aarch64 APFSPROGS_BIN=work/apfsprogs-aarch64 ./build.sh
+    # hfsfuse/hfsdump: third_party/hfsfuse/build-in-alpine.sh (Alpine, docker) -> bin/aarch64/
+    HFS_BIN=/path/to/hfsfuse/bin/aarch64 APFS_BIN=/path/to/apfs-fuse/bin/aarch64 \
+        APFSPROGS_BIN=work/apfsprogs-aarch64 ./build.sh
     SHELLCHECK=/path/to/shellcheck ./verify.sh
 
 `build.sh` downloads `https://dl.twrp.me/starlte/twrp-3.7.0_9-0-starlte.img`, checks its
@@ -96,7 +111,7 @@ stock image except the ramdisk segment, `ramdisk_size` and `id`.
 1. A no-op splice (stock image + its own ramdisk) is byte-identical to stock.
 2. New image vs stock: only `ramdisk_size`, `id` and the ramdisk differ; kernel, DT (Samsung
    DTBH table, 303104 bytes), second and all other header fields identical.
-3. The ramdisk is LZMA like stock; the cpio has all 3541 stock entries unchanged plus the 14
+3. The ramdisk is LZMA like stock; the cpio has all 3541 stock entries unchanged plus the 17
    additions above, nothing else; TWRP's own `ramdisk-files.sha256sum` still verifies.
 4. Size fits RECOVERY: 68149248 bytes (`BOARD_RECOVERYIMAGE_PARTITION_SIZE` in LineageOS
    `android_device_samsung_universal9810-common`).
@@ -105,7 +120,11 @@ stock image except the ramdisk segment, `ramdisk_size` and `id`.
 `tests/test-scion.sh` exercises `scion` itself under mksh in a privileged Alpine container: a
 GPT disk on a loop device with BOOT/RECOVERY/EFS/SYSTEM/USERDATA (so the kernel reports
 PARTNAME as on the phone), the shipped aarch64 tools under qemu-user, real FUSE mounts of
-APFS test images. `tests/test-apfsprogs.sh` makes, checks and corrupts an APFS image with the
+APFS test images and of `tests/data/hfsx-var.img.gz`, a journaled HFSX volume laid out like
+HakiOS' `/private/var` (made with macOS `newfs_hfs -s -J`, as mkdatavol.py does, by
+`tests/mkhfsimg-macos.sh`): mountvar and pull through hfsfuse, pull through hfsdump (contents
+compared with the Mac's sha256s, an HFS-compressed file included), and a volume whose journal
+the test marks dirty. `tests/test-apfsprogs.sh` makes, checks and corrupts an APFS image with the
 shipped mkapfs/apfsck.
 
 ## Flashing and recovery
@@ -129,6 +148,11 @@ The image contains GPL software. Sources, as shipped next to the image in `out/s
   (musl fixes, apfs-extract). Complete source: `apfs-fuse-src-66b86bd-patched.tar.gz`.
   Statically linked: libfuse 3.16.2 (LGPL-2.1, `fuse-3.16.2.tar.gz`), zlib, bzip2 1.0.8, lzfse,
   musl 1.2.5, libstdc++/libgcc 13.2 (GPL-3 with the runtime exception).
+- **hfsfuse**, **hfsdump**: https://github.com/0x09/hfsfuse tag 0.469 (e2a84c602cbc),
+  unmodified; hfsfuse's own code is MIT, with NetBSD's libhfs (BSD-2-Clause), utf8proc, ublio,
+  uthash, LZFSE and LZVN bundled under their own licences (`third_party/hfsfuse/COPYING`,
+  `third_party/hfsfuse/SOURCE`). Complete source: `hfsfuse-0.469.tar.gz`. Statically linked:
+  libfuse 3.16.2 (LGPL-2.1), zlib, musl, libgcc.
 - **apfsprogs** (mkapfs, apfsck, apfs-label, apfs-snap): GPL-2.0,
   https://github.com/linux-apfs/apfsprogs at 1bd1c1c2140d13d1b6d2e03379316572bee70aa3,
   unmodified (built with `-D_GNU_SOURCE -Dloff_t=off_t` for musl). `apfsprogs-1bd1c1c.tar.gz`.

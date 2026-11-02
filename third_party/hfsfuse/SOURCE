@@ -1,0 +1,14 @@
+hfsfuse: https://github.com/0x09/hfsfuse tag 0.469 (commit e2a84c602cbce6ea4a2fb0441fa1fe56c2c4e907),
+unmodified. hfsfuse's own code is MIT; it bundles NetBSD's libhfs (BSD-2-Clause), utf8proc (MIT),
+ublio (BSD-2-Clause), uthash (BSD-1-Clause), LZFSE (BSD-3-Clause) and LZVN (BSD-3-Clause), each
+under its own licence (COPYING at the top of the tree, and each lib/ directory). See COPYING here.
+Complete source as shipped in out/sources/hfsfuse-0.469.tar.gz (sha256 6de9aacab53f6c4edecd359892aa058631958b52d1973a46e2871ed9a2f04103):
+  git archive of the tag, plus src/version.h ("0.469-e2a84c6"), which "make version" writes in a
+  git checkout and the build needs without one.
+Built with build-in-alpine.sh:
+  docker run --rm --platform linux/amd64 -v $PWD:/w alpine:3.20 sh /w/build-in-alpine.sh
+Statically linked: libfuse 3.16.2 (LGPL-2.1; out/sources/fuse-3.16.2.tar.gz), zlib, musl 1.2.5,
+libgcc 13.2 (GPL-3 with the runtime exception). hfstar is not built (see the script).
+Binaries used in the image (sha256):
+f844ec9c40252ec2b964ba3087b15774c88251f2692d9060cb3e09e1274b65a0  hfsfuse
+5a400f45ff04b44ea99ffd1463049fef6f5a02923d870afd11f99a86d75e8c17  hfsdump

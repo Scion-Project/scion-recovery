@@ -1,14 +1,16 @@
 #!/bin/bash
 # Build Scion recovery: stock TWRP 3.7.0_9-0 for starlte (Galaxy S9, SM-G960F)
-# with the APFS tools and the scion helper added to its ramdisk.
+# with the HFS Plus and APFS tools and the scion helper added to its ramdisk.
 #
 # Only the ramdisk changes. The kernel, the Exynos DT table, the second stage
 # slot and every header field except ramdisk_size and the id (its SHA-1) are
 # copied byte for byte from the stock image. The ramdisk is the stock cpio with
 # entries added (no stock entry is touched), recompressed as LZMA like stock.
 #
-#   APFS_BIN=dir APFSPROGS_BIN=dir ./build.sh
+#   HFS_BIN=dir APFS_BIN=dir APFSPROGS_BIN=dir ./build.sh
 #
+#   HFS_BIN        static aarch64 hfsfuse, hfsdump
+#                  (third_party/hfsfuse/build-in-alpine.sh)
 #   APFS_BIN       static aarch64 apfs-fuse, apfs-extract, apfsutil
 #                  (see third_party/apfs-fuse/; built in Alpine/musl)
 #   APFSPROGS_BIN  static aarch64 mkapfs, apfsck, apfs-label, apfs-snap
@@ -22,6 +24,8 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 WORK=$(realpath -m "${WORK:-$HERE/work}")
 OUT=$(realpath -m "${OUT:-$HERE/out}")
+HFS_BIN=${HFS_BIN:?set HFS_BIN to the dir with hfsfuse, hfsdump}
+HFS_BIN=$(realpath "$HFS_BIN")
 APFS_BIN=${APFS_BIN:?set APFS_BIN to the dir with apfs-fuse, apfs-extract, apfsutil}
 APFSPROGS_BIN=${APFSPROGS_BIN:?set APFSPROGS_BIN to the dir with mkapfs, apfsck, apfs-label, apfs-snap}
 APFS_BIN=$(realpath "$APFS_BIN")
@@ -72,6 +76,7 @@ O=$HERE/overlay
 for f in "$O/sbin/scion" "$O/sbin/scion-bootlogs" "$O/init.recovery.samsungexynos9810.rc"; do
 	[ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
 done
+for b in hfsfuse hfsdump; do [ -f "$HFS_BIN/$b" ] || { echo "missing $HFS_BIN/$b" >&2; exit 1; }; done
 for b in apfs-fuse apfs-extract apfsutil; do [ -f "$APFS_BIN/$b" ] || { echo "missing $APFS_BIN/$b" >&2; exit 1; }; done
 for b in mkapfs apfsck apfs-label apfs-snap; do [ -f "$APFSPROGS_BIN/$b" ] || { echo "missing $APFSPROGS_BIN/$b" >&2; exit 1; }; done
 
@@ -79,6 +84,8 @@ for b in mkapfs apfsck apfs-label apfs-snap; do [ -f "$APFSPROGS_BIN/$b" ] || { 
 	"add 0750 init.recovery.samsungexynos9810.rc $O/init.recovery.samsungexynos9810.rc" \
 	"add 0755 sbin/scion $O/sbin/scion" \
 	"add 0755 sbin/scion-bootlogs $O/sbin/scion-bootlogs" \
+	"add 0755 sbin/hfsfuse $HFS_BIN/hfsfuse" \
+	"add 0755 sbin/hfsdump $HFS_BIN/hfsdump" \
 	"add 0755 sbin/apfs-fuse $APFS_BIN/apfs-fuse" \
 	"add 0755 sbin/apfs-extract $APFS_BIN/apfs-extract" \
 	"add 0755 sbin/apfsutil $APFS_BIN/apfsutil" \
@@ -89,7 +96,8 @@ for b in mkapfs apfsck apfs-label apfs-snap; do [ -f "$APFSPROGS_BIN/$b" ] || { 
 	"ln apfsck sbin/fsck.apfs" \
 	"ln mkapfs sbin/mkfs.apfs" \
 	"mkdir 0755 scion" \
-	"mkdir 0755 scion/apfs"
+	"mkdir 0755 scion/apfs" \
+	"mkdir 0755 scion/hfs"
 
 # 5. Same compression as stock (legacy LZMA), then splice into the stock image.
 rm -f ramdisk.cpio.lzma

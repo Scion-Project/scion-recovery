@@ -43,7 +43,7 @@ case $fmt in *lzma*) ok "new ramdisk is LZMA (stock: LZMA)";; *) bad "new ramdis
 python3 "$HERE/scripts/cpiodiff.py" stock/ramdisk.cpio new/ramdisk.cpio --allow-added \
 	init.recovery.samsungexynos9810.rc sbin/scion sbin/scion-bootlogs sbin/apfs-fuse sbin/apfs-extract \
 	sbin/apfsutil sbin/mkapfs sbin/apfsck sbin/apfs-label sbin/apfs-snap sbin/fsck.apfs sbin/mkfs.apfs \
-	scion scion/apfs | tee cpiodiff.txt | grep -vE "^ADDED" || true
+	sbin/hfsfuse sbin/hfsdump scion scion/apfs scion/hfs | tee cpiodiff.txt | grep -vE "^ADDED" || true
 grep -E "^ADDED" cpiodiff.txt
 if tail -1 cpiodiff.txt | grep -q "problems 0"; then ok "all stock entries unchanged, additions only"; else bad "cpio diff"; fi
 # Stock's own integrity list must still check out on the new ramdisk.
@@ -55,7 +55,7 @@ size=$(stat -c %s "$NEW")
 if [ "$size" -le "$RECOVERY_SIZE" ]; then ok "size $size <= RECOVERY $RECOVERY_SIZE ($((RECOVERY_SIZE - size)) bytes spare)"; else bad "size $size > $RECOVERY_SIZE"; fi
 
 echo "== 5. binaries and scripts"
-for f in apfs-fuse apfs-extract apfsutil mkapfs apfsck apfs-label apfs-snap; do
+for f in hfsfuse hfsdump apfs-fuse apfs-extract apfsutil mkapfs apfsck apfs-label apfs-snap; do
 	p=rdx/sbin/$f
 	if python3 "$HERE/scripts/elfcheck.py" "$p"; then ok "$f: $(file -b "$p" | cut -d, -f1-2,4)"; else bad "$f is not static aarch64"; fi
 done

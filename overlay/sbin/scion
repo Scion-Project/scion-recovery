@@ -4,11 +4,13 @@
 #   scion logs [DIR]        last_kmsg, pstore (the ESS log_pstore region), the
 #                           Samsung reset info, dmesg and the reserved log
 #                           regions into DIR/<timestamp> (default /tmp/scion-logs)
-#   scion mountvar [VOL]    mount USERDATA's APFS read-only with apfs-fuse and
-#                           point /scion/var at the volume's var directory
-#                           (falls back to SYSTEM; SCION_VAR_PARTS overrides)
+#   scion mountvar [VOL]    mount the var volume read-only and point /scion/var
+#                           at its var directory: USERDATA (HFS Plus, with
+#                           hfsfuse; or APFS, with apfs-fuse, volume VOL), then
+#                           SYSTEM (SCION_VAR_PARTS overrides)
 #   scion umountvar         undo mountvar
-#   scion pull [DIR]        tar the CrashReporter logs out of /scion/var
+#   scion pull [DIR]        tar the CrashReporter logs and hakios-runs out of
+#                           /scion/var (without FUSE: hfsdump/apfs-extract)
 #   scion flash IMG [BOOT]  write IMG to BOOT, then read it back and compare
 #                           sha256. Any partition other than BOOT is refused.
 #   scion info              what the helper sees (devices, mounts, tools)
@@ -18,7 +20,7 @@
 
 set -u
 
-SCION_VERSION=1
+SCION_VERSION=2
 PATH=/sbin:/system/bin:/system/xbin:/bin:/usr/bin:$PATH
 export PATH
 
@@ -29,10 +31,13 @@ SCION_MNT=${SCION_MNT:-/scion}
 SCION_LOGDIR=${SCION_LOGDIR:-/tmp/scion-logs}
 SCION_DT=${SCION_DT:-/proc/device-tree}
 # Where the iOS var volume may live: USERDATA first, then SYSTEM (the system
-# container can carry a Data volume too). Volumes are tried in order.
+# container can carry a Data volume too). USERDATA holds HakiOS' /private/var
+# as a journaled HFS Plus (HFSX) volume from its first block (mkdatavol.py
+# --userdata); APFS is still understood. APFS volumes are tried in order.
 SCION_VAR_PARTS=${SCION_VAR_PARTS:-"USERDATA SYSTEM"}
 SCION_VOLS=${SCION_VOLS:-"0 1 2 3 4"}
 CRASH_SUBDIR=mobile/Library/Logs/CrashReporter
+RUNS_FILE=hakios-runs
 
 say() { printf 'scion: %s\n' "$*"; }
 die() { printf 'scion: error: %s\n' "$*" >&2; exit 1; }
@@ -153,22 +158,59 @@ cmd_logs() {
 	return 0
 }
 
+# fs_kind DEV: "hfsplus" (H+ or HX at byte 1024), "apfs" (NXSB at byte 32,
+# the container superblock) or "unknown". The volume starts at block 0 of the
+# partition: there is no partition map inside it.
+fs_kind() {
+	sig=$(dd if="$1" bs=2 skip=512 count=1 2>/dev/null | tr -d '\000')
+	case $sig in
+	H+|HX) echo hfsplus; return 0 ;;
+	esac
+	sig=$(dd if="$1" bs=4 skip=8 count=1 2>/dev/null | tr -d '\000')
+	if [ "$sig" = NXSB ]; then echo apfs; else echo unknown; fi
+	return 0
+}
+
 var_dir_of() {
-	# apfs-fuse shows the volume under <mnt>/root. HakiOS' data volume is either
-	# /private/var itself or a whole tree containing private/var.
-	if [ -d "$1/root/mobile" ]; then echo "$1/root"; return 0; fi
-	if [ -d "$1/root/private/var/mobile" ]; then echo "$1/root/private/var"; return 0; fi
+	# $1 is the root of a mounted volume (hfsfuse: the mount point; apfs-fuse:
+	# <mnt>/root). HakiOS' data volume is either /private/var itself (its
+	# root holds mobile/ and hakios-runs) or a whole tree with private/var.
+	if [ -d "$1/mobile" ]; then echo "$1"; return 0; fi
+	if [ -d "$1/private/var/mobile" ]; then echo "$1/private/var"; return 0; fi
 	return 1
 }
 
 is_mounted() { grep -q " $1 " /proc/mounts 2>/dev/null; }
 
+# mount_hfs DEV MNT: hfsfuse is read-only. A journal that was not flushed
+# (HakiOS stopped without unmounting) makes hfsfuse refuse; it does not replay
+# journals, so mount anyway with --force and say that the newest changes may
+# be missing.
+mount_hfs() {
+	err=$(hfsfuse -o ro,allow_other "$1" "$2" 2>&1) && return 0
+	err=$(hfsfuse -o ro "$1" "$2" 2>&1) && return 0
+	case $err in
+	*[Jj]ournal*dirty*) ;;
+	*) say "hfsfuse: $err"; return 1 ;;
+	esac
+	say "the journal of $1 is not clean (HakiOS did not unmount it); mounting anyway,"
+	say "without replaying it: what HakiOS wrote last may be missing or stale"
+	hfsfuse --force -o ro,allow_other "$1" "$2" 2>/dev/null ||
+		hfsfuse --force -o ro "$1" "$2"
+}
+
 cmd_mountvar() {
-	command -v apfs-fuse >/dev/null 2>&1 || die "apfs-fuse is not in PATH"
 	am=$SCION_MNT/apfs
-	mkdir -p "$am" || die "cannot create $am"
+	hm=$SCION_MNT/hfs
+	mkdir -p "$am" "$hm" || die "cannot create $am, $hm"
+	if is_mounted "$hm"; then
+		v=$(var_dir_of "$hm") || die "$hm is mounted but has no var directory"
+		ln -sfn "$v" "$SCION_MNT/var"
+		say "already mounted: $SCION_MNT/var -> $v"
+		return 0
+	fi
 	if is_mounted "$am"; then
-		v=$(var_dir_of "$am") || die "$am is mounted but has no var directory"
+		v=$(var_dir_of "$am/root") || die "$am is mounted but has no var directory"
 		ln -sfn "$v" "$SCION_MNT/var"
 		say "already mounted: $SCION_MNT/var -> $v"
 		return 0
@@ -178,30 +220,76 @@ cmd_mountvar() {
 	tried=""
 	for part in $SCION_VAR_PARTS; do
 		dev=$(find_part "$part") || continue
-		tried="$tried $part"
-		for vol in $vols; do
-			apfs-fuse -v "$vol" -o ro,allow_other "$dev" "$am" 2>/dev/null ||
-				apfs-fuse -v "$vol" -o ro "$dev" "$am" 2>/dev/null || continue
-			if v=$(var_dir_of "$am"); then
+		kind=$(fs_kind "$dev")
+		tried="$tried $part($kind)"
+		case $kind in
+		hfsplus)
+			command -v hfsfuse >/dev/null 2>&1 || { say "$part is HFS Plus but hfsfuse is not in PATH"; continue; }
+			mount_hfs "$dev" "$hm" || continue
+			if v=$(var_dir_of "$hm"); then
 				ln -sfn "$v" "$SCION_MNT/var"
-				say "$part ($dev) volume $vol mounted read-only at $am"
+				say "$part ($dev, HFS Plus) mounted read-only at $hm"
 				say "$SCION_MNT/var -> $v"
+				[ -f "$v/$RUNS_FILE" ] && say "$RUNS_FILE: $(cat "$v/$RUNS_FILE" 2>/dev/null)"
 				return 0
 			fi
-			say "$part volume $vol has no var directory, trying the next"
-			umount "$am" 2>/dev/null
-		done
+			say "$part (HFS Plus) has no var directory, trying the next"
+			umount "$hm" 2>/dev/null
+			;;
+		apfs)
+			command -v apfs-fuse >/dev/null 2>&1 || { say "$part is APFS but apfs-fuse is not in PATH"; continue; }
+			for vol in $vols; do
+				apfs-fuse -v "$vol" -o ro,allow_other "$dev" "$am" 2>/dev/null ||
+					apfs-fuse -v "$vol" -o ro "$dev" "$am" 2>/dev/null || continue
+				if v=$(var_dir_of "$am/root"); then
+					ln -sfn "$v" "$SCION_MNT/var"
+					say "$part ($dev) volume $vol mounted read-only at $am"
+					say "$SCION_MNT/var -> $v"
+					return 0
+				fi
+				say "$part volume $vol has no var directory, trying the next"
+				umount "$am" 2>/dev/null
+			done
+			;;
+		*)
+			say "$part: neither HFS Plus (H+/HX at byte 1024) nor APFS (NXSB at byte 32), skipped"
+			;;
+		esac
 	done
-	die "no APFS volume with a var directory on:${tried:- (no partition found)} (try: apfs-extract DEV vols)"
+	die "no HFS Plus or APFS volume with a var directory on:${tried:- (no partition found)} (try: hfsdump DEV, apfs-extract DEV vols)"
 }
 
 cmd_umountvar() {
 	rm -f "$SCION_MNT/var"
-	if is_mounted "$SCION_MNT/apfs"; then
-		umount "$SCION_MNT/apfs" || die "umount $SCION_MNT/apfs failed"
-	fi
+	for m in "$SCION_MNT/hfs" "$SCION_MNT/apfs"; do
+		if is_mounted "$m"; then
+			umount "$m" || die "umount $m failed"
+		fi
+	done
 	say "unmounted"
 }
+
+# hfs_get DEV SRC DST: copy SRC (file, symlink or directory, recursively) out
+# of the HFS Plus volume on DEV to DST with hfsdump, no FUSE needed.
+# A subshell, so that the recursion keeps its own variables.
+hfs_get() (
+	st=$(hfsdump "$1" stat "$2" 2>/dev/null) || exit 1
+	mode=$(echo "$st" | sed -n 's/^permissions.file_mode: //p')
+	case $st in
+	*"type: folder"*)
+		mkdir -p "$3" || exit 1
+		hfsdump "$1" read "$2" 2>/dev/null | while IFS= read -r n; do
+			[ -n "$n" ] && hfs_get "$1" "$2/$n" "$3/$n"
+		done
+		;;
+	*)
+		case $mode in
+		12????) ln -sfn "$(hfsdump "$1" read "$2" 2>/dev/null)" "$3" ;;
+		*) hfsdump "$1" read "$2" > "$3" 2>/dev/null ;;
+		esac
+		;;
+	esac
+)
 
 cmd_pull() {
 	out=${1:-$SCION_LOGDIR}
@@ -212,22 +300,43 @@ cmd_pull() {
 		(cmd_mountvar) >/dev/null 2>&1 || true
 	fi
 	if [ -d "$SCION_MNT/var/$CRASH_SUBDIR" ]; then
-		(cd "$SCION_MNT/var" && tar -czf "$tarball" "$CRASH_SUBDIR") || die "tar failed"
+		set -- "$CRASH_SUBDIR"
+		[ -f "$SCION_MNT/var/$RUNS_FILE" ] && set -- "$@" "$RUNS_FILE"
+		(cd "$SCION_MNT/var" && tar -czf "$tarball" "$@") || die "tar failed"
 	else
-		# No FUSE mount: read the volume directly with apfs-extract.
-		command -v apfs-extract >/dev/null 2>&1 || die "no /scion/var and no apfs-extract"
+		# No FUSE mount: read the volume directly with hfsdump or apfs-extract.
 		ok=0
 		for part in $SCION_VAR_PARTS; do
 			dev=$(find_part "$part") || continue
-			for vol in $SCION_VOLS; do
-				for p in "/$CRASH_SUBDIR" "/private/var/$CRASH_SUBDIR"; do
-					if apfs-extract -q -v "$vol" "$dev" stat "$p" >/dev/null 2>&1; then
-						apfs-extract -q -v "$vol" "$dev" tar "$p" | gzip > "$tarball" && ok=1
-						say "read $p from $part volume $vol with apfs-extract"
-						break 3
-					fi
+			case $(fs_kind "$dev") in
+			hfsplus)
+				command -v hfsdump >/dev/null 2>&1 || continue
+				for p in "" "/private/var"; do
+					hfsdump "$dev" stat "$p/$CRASH_SUBDIR" >/dev/null 2>&1 || continue
+					tmp=$out/.hfs-$$
+					rm -rf "$tmp"
+					hfs_get "$dev" "$p/$CRASH_SUBDIR" "$tmp/$CRASH_SUBDIR"
+					set -- "$CRASH_SUBDIR"
+					hfs_get "$dev" "$p/$RUNS_FILE" "$tmp/$RUNS_FILE" && set -- "$@" "$RUNS_FILE"
+					(cd "$tmp" && tar -czf "$tarball" "$@") && ok=1
+					rm -rf "$tmp"
+					say "read $p/$CRASH_SUBDIR from $part (HFS Plus) with hfsdump"
+					break 2
 				done
-			done
+				;;
+			apfs)
+				command -v apfs-extract >/dev/null 2>&1 || continue
+				for vol in $SCION_VOLS; do
+					for p in "/$CRASH_SUBDIR" "/private/var/$CRASH_SUBDIR"; do
+						if apfs-extract -q -v "$vol" "$dev" stat "$p" >/dev/null 2>&1; then
+							apfs-extract -q -v "$vol" "$dev" tar "$p" | gzip > "$tarball" && ok=1
+							say "read $p from $part volume $vol with apfs-extract"
+							break 3
+						fi
+					done
+				done
+				;;
+			esac
 		done
 		[ $ok -eq 1 ] || die "CrashReporter not found on: $SCION_VAR_PARTS"
 	fi
@@ -273,12 +382,12 @@ cmd_info() {
 	say "version $SCION_VERSION"
 	for p in BOOT RECOVERY USERDATA SYSTEM; do
 		if d=$(find_part "$p"); then
-			say "$p: $d ($(blockdev --getsize64 "$d" 2>/dev/null) bytes)"
+			say "$p: $d ($(blockdev --getsize64 "$d" 2>/dev/null) bytes, $(fs_kind "$d"))"
 		else
 			say "$p: not found"
 		fi
 	done
-	for t in apfs-fuse apfs-extract apfsutil mkapfs apfsck; do
+	for t in hfsfuse hfsdump apfs-fuse apfs-extract apfsutil mkapfs apfsck; do
 		if command -v "$t" >/dev/null 2>&1; then say "tool: $(command -v "$t")"; else say "tool missing: $t"; fi
 	done
 	if [ -c /dev/fuse ]; then say "/dev/fuse: present"; else say "/dev/fuse: absent"; fi
@@ -288,7 +397,7 @@ cmd_info() {
 }
 
 usage() {
-	sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 cmd=${1:-help}
