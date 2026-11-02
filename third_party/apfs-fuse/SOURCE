@@ -1,0 +1,8 @@
+apfs-fuse: https://github.com/sgan81/apfs-fuse commit 66b86bd525e8, GPL-2.0-or-later,
+plus apfs-fuse-local.patch (musl: fstat/pread instead of fstat64/pread64; adds apfs-extract).
+Built by the s9-recovery-apfs work: build-in-alpine.sh, run as
+  docker run --rm --platform linux/amd64 -v $PWD:/w alpine:3.20 /w/scripts/build-in-alpine.sh
+with /w/src/apfs-fuse the patched tree. Binaries used in the image (sha256):
+172f73493601ec1835362d630a285e68c9d1af1cf4f6e1600598a8e4d342bc27  apfs-extract
+ca4cf785e73eac443dd65bc6cf5fddce85a9e4bd67e370e8b8e7e97cb3461f92  apfs-fuse
+41c79a8dfedb00af28c153f91460a93d215c7fd4c6907bcd39e224ad3218af71  apfsutil

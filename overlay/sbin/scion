@@ -1,0 +1,306 @@
+#!/sbin/sh
+# scion: Scion recovery helper for the Galaxy S9 (starlte) running HakiOS.
+#
+#   scion logs [DIR]        last_kmsg, pstore (the ESS log_pstore region), the
+#                           Samsung reset info, dmesg and the reserved log
+#                           regions into DIR/<timestamp> (default /tmp/scion-logs)
+#   scion mountvar [VOL]    mount USERDATA's APFS read-only with apfs-fuse and
+#                           point /scion/var at the volume's var directory
+#                           (falls back to SYSTEM; SCION_VAR_PARTS overrides)
+#   scion umountvar         undo mountvar
+#   scion pull [DIR]        tar the CrashReporter logs out of /scion/var
+#   scion flash IMG [BOOT]  write IMG to BOOT, then read it back and compare
+#                           sha256. Any partition other than BOOT is refused.
+#   scion info              what the helper sees (devices, mounts, tools)
+#
+# Everything is read-only except "flash", which only ever touches BOOT.
+# Written for TWRP's /sbin/sh (mksh) and busybox; POSIX sh only.
+
+set -u
+
+SCION_VERSION=1
+PATH=/sbin:/system/bin:/system/xbin:/bin:/usr/bin:$PATH
+export PATH
+
+# Overridable for host-side tests; the defaults are what TWRP has on the S9.
+SCION_BLOCKDIRS=${SCION_BLOCKDIRS:-"/dev/block/by-name /dev/block/platform/11120000.ufs/by-name /dev/block/bootdevice/by-name"}
+SCION_SYSBLOCK=${SCION_SYSBLOCK:-/sys/class/block}
+SCION_MNT=${SCION_MNT:-/scion}
+SCION_LOGDIR=${SCION_LOGDIR:-/tmp/scion-logs}
+SCION_DT=${SCION_DT:-/proc/device-tree}
+# Where the iOS var volume may live: USERDATA first, then SYSTEM (the system
+# container can carry a Data volume too). Volumes are tried in order.
+SCION_VAR_PARTS=${SCION_VAR_PARTS:-"USERDATA SYSTEM"}
+SCION_VOLS=${SCION_VOLS:-"0 1 2 3 4"}
+CRASH_SUBDIR=mobile/Library/Logs/CrashReporter
+
+say() { printf 'scion: %s\n' "$*"; }
+die() { printf 'scion: error: %s\n' "$*" >&2; exit 1; }
+stamp() { date +%Y%m%d-%H%M%S 2>/dev/null || echo now; }
+
+# find_part NAME: print the by-name link for partition NAME, or nothing.
+find_part() {
+	for d in $SCION_BLOCKDIRS; do
+		if [ -e "$d/$1" ]; then
+			echo "$d/$1"
+			return 0
+		fi
+	done
+	# Fall back to the kernel's own PARTNAME, in case no by-name links exist.
+	for u in "$SCION_SYSBLOCK"/*/uevent; do
+		[ -f "$u" ] || continue
+		if grep -qx "PARTNAME=$1" "$u"; then
+			n=$(sed -n 's/^DEVNAME=//p' "$u")
+			[ -n "$n" ] && [ -e "/dev/block/$n" ] && { echo "/dev/block/$n"; return 0; }
+		fi
+	done
+	return 1
+}
+
+# partname DEV: the kernel's PARTNAME for a block device node (follows links).
+partname() {
+	real=$(readlink -f "$1") || return 1
+	base=${real##*/}
+	sed -n 's/^PARTNAME=//p' "$SCION_SYSBLOCK/$base/uevent" 2>/dev/null
+}
+
+# copy SRC DST: copy a file if it exists and is readable; never fail.
+copy() {
+	if [ -r "$1" ]; then
+		cat "$1" > "$2" 2>/dev/null || rm -f "$2"
+	fi
+	return 0
+}
+
+# Reserved-memory regions holding logs: record where they are, and dump them
+# raw if /dev/mem exists (TWRP's stock kernel has CONFIG_DEVMEM off, so it
+# usually won't; the pstore copy is what we get then).
+dump_regions() {
+	out=$1
+	rm_dir=$SCION_DT/reserved-memory
+	[ -d "$rm_dir" ] || return 0
+	ac=$(od -An -tu1 "$rm_dir/#address-cells" 2>/dev/null | awk '{print $NF}')
+	sc=$(od -An -tu1 "$rm_dir/#size-cells" 2>/dev/null | awk '{print $NF}')
+	[ -n "$ac" ] || ac=2
+	[ -n "$sc" ] || sc=1
+	for n in "$rm_dir"/*; do
+		[ -f "$n/reg" ] || continue
+		name=${n##*/}
+		case $name in
+		*log*|*ess*|*dss*|*ramoops*|*pstore*|*debug*|*kmsg*) ;;
+		*) continue ;;
+		esac
+		# reg is big-endian 32-bit cells: address cells then size cells.
+		cells=$(od -An -tx1 -v "$n/reg" | tr -s ' \n' ' ')
+		# shellcheck disable=SC2086 # split the hex bytes into words on purpose
+		set -- $cells
+		addr=""; size=""; i=0
+		while [ $i -lt "$ac" ] && [ $# -ge 4 ]; do addr="$addr$1$2$3$4"; shift 4; i=$((i + 1)); done
+		i=0
+		while [ $i -lt "$sc" ] && [ $# -ge 4 ]; do size="$size$1$2$3$4"; shift 4; i=$((i + 1)); done
+		if [ -z "$addr" ] || [ -z "$size" ]; then continue; fi
+		echo "$name addr=0x$addr size=0x$size" >> "$out/reserved-log-regions.txt"
+		if [ -c /dev/mem ]; then
+			# mksh arithmetic is 32-bit: do the 64-bit maths in awk.
+			a=$(printf '%d' "0x$addr"); s=$(printf '%d' "0x$size")
+			if pages=$(awk -v a="$a" -v s="$s" 'BEGIN { if (a % 4096 || s % 4096 || s > 16777216) exit 1; printf "%d %d", a / 4096, s / 4096 }'); then
+				dd if=/dev/mem of="$out/region-$name.bin" bs=4096 skip="${pages% *}" count="${pages#* }" 2>/dev/null || rm -f "$out/region-$name.bin"
+			fi
+		fi
+	done
+	[ -c /dev/mem ] || echo "/dev/mem: absent (CONFIG_DEVMEM off), raw regions not dumped" >> "$out/reserved-log-regions.txt"
+	return 0
+}
+
+cmd_logs() {
+	boot=0
+	if [ "${1:-}" = "--boot" ]; then boot=1; shift; fi
+	base=${1:-$SCION_LOGDIR}
+	if [ $boot -eq 1 ]; then out=$base; else out=$base/$(stamp); fi
+	mkdir -p "$out" || die "cannot create $out"
+
+	copy /proc/last_kmsg "$out/last_kmsg.txt"
+	# ESS's log_pstore region, exported by ramoops; TWRP's init.rc mounts it.
+	if [ -d /sys/fs/pstore ] && ! grep -q ' /sys/fs/pstore ' /proc/mounts 2>/dev/null; then
+		mount -t pstore pstore /sys/fs/pstore 2>/dev/null
+	fi
+	if [ -d /sys/fs/pstore ]; then
+		mkdir -p "$out/pstore"
+		for f in /sys/fs/pstore/*; do
+			[ -f "$f" ] && copy "$f" "$out/pstore/${f##*/}"
+		done
+	fi
+	for f in reset_reason reset_reason_extra_info extra auto_comment pwrsrc reset_history cmdline version; do
+		copy "/proc/$f" "$out/proc-$f.txt"
+	done
+	dmesg > "$out/dmesg.txt" 2>/dev/null
+	if [ $boot -eq 0 ]; then
+		dump_regions "$out"
+		cat /proc/mounts > "$out/mounts.txt" 2>/dev/null
+		getprop > "$out/getprop.txt" 2>/dev/null
+		ls -l /sys/fs/pstore > "$out/pstore-ls.txt" 2>/dev/null
+		for f in /sys/module/ramoops/parameters/*; do
+			[ -f "$f" ] && echo "${f##*/}=$(cat "$f" 2>/dev/null)" >> "$out/ramoops-params.txt"
+		done
+		# Remove empty files so what is there is what was read.
+		find "$out" -type f -size 0 -exec rm -f {} + 2>/dev/null
+		(cd "$base" && tar -czf "${out##*/}.tar.gz" "${out##*/}") 2>/dev/null &&
+			say "archive: $base/${out##*/}.tar.gz"
+	fi
+	say "logs in $out"
+	ls -l "$out"
+	[ $boot -eq 1 ] || say "on the computer: adb pull $base/${out##*/}.tar.gz"
+	return 0
+}
+
+var_dir_of() {
+	# apfs-fuse shows the volume under <mnt>/root. HakiOS' data volume is either
+	# /private/var itself or a whole tree containing private/var.
+	if [ -d "$1/root/mobile" ]; then echo "$1/root"; return 0; fi
+	if [ -d "$1/root/private/var/mobile" ]; then echo "$1/root/private/var"; return 0; fi
+	return 1
+}
+
+is_mounted() { grep -q " $1 " /proc/mounts 2>/dev/null; }
+
+cmd_mountvar() {
+	command -v apfs-fuse >/dev/null 2>&1 || die "apfs-fuse is not in PATH"
+	am=$SCION_MNT/apfs
+	mkdir -p "$am" || die "cannot create $am"
+	if is_mounted "$am"; then
+		v=$(var_dir_of "$am") || die "$am is mounted but has no var directory"
+		ln -sfn "$v" "$SCION_MNT/var"
+		say "already mounted: $SCION_MNT/var -> $v"
+		return 0
+	fi
+	[ -c /dev/fuse ] || die "/dev/fuse is missing (kernel without FUSE?)"
+	if [ -n "${1:-}" ]; then vols=$1; else vols=$SCION_VOLS; fi
+	tried=""
+	for part in $SCION_VAR_PARTS; do
+		dev=$(find_part "$part") || continue
+		tried="$tried $part"
+		for vol in $vols; do
+			apfs-fuse -v "$vol" -o ro,allow_other "$dev" "$am" 2>/dev/null ||
+				apfs-fuse -v "$vol" -o ro "$dev" "$am" 2>/dev/null || continue
+			if v=$(var_dir_of "$am"); then
+				ln -sfn "$v" "$SCION_MNT/var"
+				say "$part ($dev) volume $vol mounted read-only at $am"
+				say "$SCION_MNT/var -> $v"
+				return 0
+			fi
+			say "$part volume $vol has no var directory, trying the next"
+			umount "$am" 2>/dev/null
+		done
+	done
+	die "no APFS volume with a var directory on:${tried:- (no partition found)} (try: apfs-extract DEV vols)"
+}
+
+cmd_umountvar() {
+	rm -f "$SCION_MNT/var"
+	if is_mounted "$SCION_MNT/apfs"; then
+		umount "$SCION_MNT/apfs" || die "umount $SCION_MNT/apfs failed"
+	fi
+	say "unmounted"
+}
+
+cmd_pull() {
+	out=${1:-$SCION_LOGDIR}
+	mkdir -p "$out" || die "cannot create $out"
+	tarball=$out/crashreporter-$(stamp).tar.gz
+	if [ ! -d "$SCION_MNT/var/$CRASH_SUBDIR" ]; then
+		# Subshell: die() in mountvar must not end pull.
+		(cmd_mountvar) >/dev/null 2>&1 || true
+	fi
+	if [ -d "$SCION_MNT/var/$CRASH_SUBDIR" ]; then
+		(cd "$SCION_MNT/var" && tar -czf "$tarball" "$CRASH_SUBDIR") || die "tar failed"
+	else
+		# No FUSE mount: read the volume directly with apfs-extract.
+		command -v apfs-extract >/dev/null 2>&1 || die "no /scion/var and no apfs-extract"
+		ok=0
+		for part in $SCION_VAR_PARTS; do
+			dev=$(find_part "$part") || continue
+			for vol in $SCION_VOLS; do
+				for p in "/$CRASH_SUBDIR" "/private/var/$CRASH_SUBDIR"; do
+					if apfs-extract -q -v "$vol" "$dev" stat "$p" >/dev/null 2>&1; then
+						apfs-extract -q -v "$vol" "$dev" tar "$p" | gzip > "$tarball" && ok=1
+						say "read $p from $part volume $vol with apfs-extract"
+						break 3
+					fi
+				done
+			done
+		done
+		[ $ok -eq 1 ] || die "CrashReporter not found on: $SCION_VAR_PARTS"
+	fi
+	say "crash logs: $tarball"
+	say "on the computer: adb pull $tarball"
+}
+
+cmd_flash() {
+	img=${1:-}
+	target=${2:-BOOT}
+	[ -n "$img" ] || die "usage: scion flash IMG [BOOT]"
+	# Only BOOT. RECOVERY, EFS, BOTA, PARAM, the bootloader and the rest are refused.
+	case $target in
+	BOOT|boot) target=BOOT ;;
+	*) die "refusing to write '$target': scion flash only writes BOOT" ;;
+	esac
+	[ -f "$img" ] || die "$img: no such file"
+	dev=$(find_part BOOT) || die "BOOT partition not found"
+	pn=$(partname "$dev")
+	[ "$pn" = BOOT ] || die "$dev is '$pn', not BOOT; refusing"
+	size=$(wc -c < "$img" | tr -d ' ')
+	[ "$size" -gt 0 ] || die "$img is empty"
+	psize=$(blockdev --getsize64 "$dev" 2>/dev/null) || die "cannot read the size of $dev"
+	[ "$size" -le "$psize" ] || die "$img is $size bytes, BOOT is $psize"
+	magic=$(head -c 8 "$img")
+	if [ "$magic" != "ANDROID!" ] && [ "${SCION_FORCE:-0}" != 1 ]; then
+		die "$img is not an Android boot image (no ANDROID! magic); SCION_FORCE=1 to write it anyway"
+	fi
+	want=$(sha256sum "$img" | awk '{print $1}')
+	say "writing $img ($size bytes, sha256 $want) to $dev (BOOT, $psize bytes)"
+	dd if="$img" of="$dev" bs=4096 conv=fsync 2>/dev/null || die "dd failed"
+	sync
+	echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+	got=$(head -c "$size" "$dev" | sha256sum | awk '{print $1}')
+	if [ "$got" = "$want" ]; then
+		say "read-back OK: sha256 $got"
+		return 0
+	fi
+	die "read-back MISMATCH: wrote $want, read $got. Do not reboot into BOOT; flash again."
+}
+
+cmd_info() {
+	say "version $SCION_VERSION"
+	for p in BOOT RECOVERY USERDATA SYSTEM; do
+		if d=$(find_part "$p"); then
+			say "$p: $d ($(blockdev --getsize64 "$d" 2>/dev/null) bytes)"
+		else
+			say "$p: not found"
+		fi
+	done
+	for t in apfs-fuse apfs-extract apfsutil mkapfs apfsck; do
+		if command -v "$t" >/dev/null 2>&1; then say "tool: $(command -v "$t")"; else say "tool missing: $t"; fi
+	done
+	if [ -c /dev/fuse ]; then say "/dev/fuse: present"; else say "/dev/fuse: absent"; fi
+	[ -d /tmp/scion-boot ] && say "boot-time logs: /tmp/scion-boot"
+	grep -E " $SCION_MNT/| /sys/fs/pstore " /proc/mounts 2>/dev/null
+	return 0
+}
+
+usage() {
+	sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+cmd=${1:-help}
+[ $# -gt 0 ] && shift
+case $cmd in
+logs) cmd_logs "$@" ;;
+mountvar) cmd_mountvar "$@" ;;
+umountvar) cmd_umountvar ;;
+pull) cmd_pull "$@" ;;
+flash) cmd_flash "$@" ;;
+info) cmd_info ;;
+version) echo "scion $SCION_VERSION" ;;
+help|-h|--help) usage ;;
+*) usage >&2; exit 2 ;;
+esac

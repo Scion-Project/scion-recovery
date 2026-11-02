@@ -1,0 +1,6 @@
+#!/sbin/sh
+# Started once by init when TWRP comes up (init.recovery.samsungexynos9810.rc),
+# the same way TWRP starts its own /sbin/permissive.sh. init does not wait for
+# it. It copies the previous run's logs (last_kmsg, pstore, reset reason) and
+# this boot's dmesg into /tmp/scion-boot, before anything can overwrite them.
+exec /sbin/scion logs --boot /tmp/scion-boot > /tmp/scion-bootlogs.out 2>&1

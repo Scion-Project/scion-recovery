@@ -1,0 +1,3 @@
+apfsprogs: https://github.com/linux-apfs/apfsprogs
+commit 1bd1c1c2140d13d1b6d2e03379316572bee70aa3 (2026-10-15), unmodified, GPL-2.0.
+Built by scripts/build-apfsprogs.sh (zig 0.13.0 cc, aarch64-linux-musl, -static).

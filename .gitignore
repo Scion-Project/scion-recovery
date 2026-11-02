@@ -1,0 +1,6 @@
+work/
+out/
+*.img
+*.tar
+*.tar.gz
+*.apk
