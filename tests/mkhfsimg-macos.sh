@@ -1,7 +1,7 @@
 #!/bin/sh
 # Make tests/data/hfsx-var.img.gz on macOS: a 64 MB journaled, case-sensitive
 # HFS Plus (HFSX) volume made with newfs_hfs as tools/mkdatavol.py does
-# (Scion-Project/hackios-xnu-kernel), laid out like HakiOS' /private/var on the
+# (Scion-Project/scion-kernel), laid out like HakiOS' /private/var on the
 # S9's USERDATA: the volume root is /private/var, with hakios-runs and
 # mobile/Library/Logs/CrashReporter. One file is HFS-compressed (decmpfs) and
 # one name has a space. Unmounted cleanly, so its journal is clean;

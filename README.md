@@ -60,7 +60,7 @@ Details:
   filesystem by its signature, the volume starting at the partition's first byte (no partition
   map inside): `H+` or `HX` at byte 1024 is HFS Plus, `NXSB` at byte 32 an APFS container.
   HakiOS keeps `/private/var` on USERDATA as a journaled, case-sensitive HFS Plus (HFSX) volume,
-  the whole partition (`tools/mkdatavol.py --userdata` in hackios-xnu-kernel); its root is
+  the whole partition (`tools/mkdatavol.py --userdata` in scion-kernel); its root is
   `/private/var` itself (`mobile/`, `hakios-runs`). That is mounted with hfsfuse at
   `/scion/hfs`. TWRP's kernel has no HFS Plus driver (`# CONFIG_HFSPLUS_FS is not set` in its
   embedded config), hence FUSE. hfsfuse is read-only and does not replay the journal: if HakiOS
