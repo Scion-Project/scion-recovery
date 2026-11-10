@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: MIT-0 -->
 # Scion recovery
 
 The recovery image for HakiOS on the Samsung Galaxy S9 (SM-G960F, starlte, Exynos 9810).

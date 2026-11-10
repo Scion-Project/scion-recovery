@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: MIT-0
 # Runs inside alpine (docker). Tests the aarch64 apfsprogs under qemu-user.
 set -u
 apk add --no-cache qemu-aarch64 >/dev/null 2>&1
