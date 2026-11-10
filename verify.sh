@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT-0
 # Verify a build without a phone. Run after build.sh with the same WORK/OUT.
 #  1. A no-op splice (stock image + its own ramdisk) is byte-identical to stock.
 #  2. scion-recovery.img vs stock: only ramdisk_size, id and the ramdisk differ;
