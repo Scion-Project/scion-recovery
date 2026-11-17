@@ -55,6 +55,7 @@ jobs:
           git -C "$W/src/apfs-fuse" checkout -q 66b86bd525e8
           git -C "$W/src/apfs-fuse" submodule update -q --init
           git -C "$W/src/apfs-fuse" apply "$GITHUB_WORKSPACE/third_party/apfs-fuse/apfs-fuse-local.patch"
+          cp -r "$GITHUB_WORKSPACE/third_party/apfs-fuse/apfs-extract" "$W/src/"
           cp "$GITHUB_WORKSPACE/third_party/apfs-fuse/build-in-alpine.sh" "$W/scripts/"
           docker run --rm -v "$W:/w" alpine:3.20 sh /w/scripts/build-in-alpine.sh
           sudo rm -rf "$W/src"
