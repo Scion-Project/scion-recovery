@@ -22,6 +22,8 @@
 #   scion fsck                  check APFS read only (apfsck); HFS Plus header
 #   scion policy                what Scion may write (/etc/scion-partitions.conf)
 #   scion check PART            exit 0 if Scion may write PART
+#   scion fastboot start|stop|status   fastboot over USB (scion-fastbootd)
+#                               instead of adb, until stop
 #   scion info                  devices, mounts, tools
 #
 # Writes go only to the partitions /etc/scion-partitions.conf lists under
@@ -871,6 +873,87 @@ cmd_check() {
 	say "$1 may be written: $d"
 }
 
+# ---- fastboot over USB ------------------------------------------------------
+# TWRP's USB gadget (init.recovery.usb.rc): configfs g1 with one FunctionFS
+# function, ffs.adb, mounted at /dev/usb-ffs/adb, and Samsung's android_usb
+# switch over it. Samsung's FunctionFS names every FunctionFS function "adb"
+# (drivers/usb/gadget/function/f_fs.c in the S9's kernel source), so fastboot
+# takes the same function: adbd stops, scion-fastbootd writes fastboot's
+# descriptors to its ep0, and the gadget comes back up as Google's fastboot
+# (18d1:4ee0) the way TWRP's init brings adb up. Stop reverses it: adbd
+# writes its own descriptors again and TWRP's init re-enables adb.
+# NOT run on a phone.
+SCION_GADGET=${SCION_GADGET:-/sys/kernel/config/usb_gadget/g1}
+SCION_ANDROID_USB=${SCION_ANDROID_USB:-/sys/class/android_usb/android0}
+SCION_FFS=${SCION_FFS:-/dev/usb-ffs/adb}
+SCION_FBD=${SCION_FBD:-/sbin/scion-fastbootd}
+SCION_FBD_RUN=${SCION_FBD_RUN:-/tmp}
+
+usb_set() { echo "$2" > "$1" 2>/dev/null || say "could not write '$2' to $1"; }
+
+fbd_pid() {
+	p=$(cat "$SCION_FBD_RUN/scion-fastbootd.pid" 2>/dev/null)
+	[ -n "$p" ] && kill -0 "$p" 2>/dev/null && { echo "$p"; return 0; }
+	return 1
+}
+
+cmd_fastboot() {
+	case ${1:-status} in
+	start)
+		if p=$(fbd_pid); then say "fastboot is already running (pid $p)"; return 0; fi
+		[ -d "$SCION_GADGET" ] || die "no USB gadget at $SCION_GADGET"
+		[ -e "$SCION_FFS/ep0" ] || die "no FunctionFS at $SCION_FFS"
+		[ -x "$SCION_FBD" ] || die "$SCION_FBD is missing"
+		udc=$(cat "$SCION_GADGET/UDC" 2>/dev/null)
+		[ -n "$udc" ] || udc=$(prop sys.usb.controller)
+		[ -n "$udc" ] || udc=10c00000.dwc3
+		say "stopping adb: while fastboot runs there is no adb (Stop fastboot brings it back)"
+		setprop ctl.stop adbd 2>/dev/null
+		i=0
+		while pidof adbd >/dev/null 2>&1 && [ $i -lt 10 ]; do sleep 1; i=$((i + 1)); done
+		usb_set "$SCION_ANDROID_USB/enable" 0
+		setprop sys.usb.ffs.ready 0 2>/dev/null
+		rm -f "$SCION_FBD_RUN/scion-fastbootd.ready"
+		"$SCION_FBD" --ffs "$SCION_FFS" --ready "$SCION_FBD_RUN/scion-fastbootd.ready" \
+			< /dev/null >> "$SCION_FBD_RUN/scion-fastbootd.log" 2>&1 &
+		echo $! > "$SCION_FBD_RUN/scion-fastbootd.pid"
+		i=0
+		while [ ! -f "$SCION_FBD_RUN/scion-fastbootd.ready" ] && [ $i -lt 50 ]; do sleep 0.1 2>/dev/null || sleep 1; i=$((i + 1)); done
+		if [ ! -f "$SCION_FBD_RUN/scion-fastbootd.ready" ]; then
+			tail -5 "$SCION_FBD_RUN/scion-fastbootd.log" 2>/dev/null
+			cmd_fastboot stop
+			die "scion-fastbootd did not come up (log: $SCION_FBD_RUN/scion-fastbootd.log); adb is back"
+		fi
+		usb_set "$SCION_GADGET/idVendor" 0x18D1
+		usb_set "$SCION_GADGET/idProduct" 0x4EE0
+		usb_set "$SCION_GADGET/bDeviceClass" 0
+		usb_set "$SCION_ANDROID_USB/functions" adb
+		usb_set "$SCION_GADGET/UDC" "$udc"
+		usb_set "$SCION_ANDROID_USB/enable" 1
+		setprop sys.usb.state fastboot 2>/dev/null
+		log_action "fastboot start pid=$(cat "$SCION_FBD_RUN/scion-fastbootd.pid")"
+		say "fastboot is up. On the computer: fastboot devices; fastboot flash boot BOOT.img;"
+		say "fastboot flash userdata ROOT.img; fastboot reboot (reboot bootloader = Download mode)"
+		say "Only BOOT and USERDATA can be written. Log: $SCION_FBD_RUN/scion-fastbootd.log"
+		;;
+	stop)
+		if p=$(fbd_pid); then kill "$p" 2>/dev/null; say "scion-fastbootd stopped"; else say "fastboot was not running"; fi
+		rm -f "$SCION_FBD_RUN/scion-fastbootd.pid" "$SCION_FBD_RUN/scion-fastbootd.ready"
+		usb_set "$SCION_ANDROID_USB/enable" 0
+		setprop sys.usb.ffs.ready 0 2>/dev/null
+		setprop ctl.start adbd 2>/dev/null
+		log_action "fastboot stop"
+		say "adb is starting again: it comes back in a few seconds"
+		;;
+	status)
+		if p=$(fbd_pid); then say "fastboot running (pid $p)"; else say "fastboot not running"; fi
+		tail -15 "$SCION_FBD_RUN/scion-fastbootd.log" 2>/dev/null
+		return 0
+		;;
+	*) die "usage: scion fastboot start|stop|status" ;;
+	esac
+}
+
 cmd_info() {
 	say "version $SCION_VERSION"
 	for p in BOOT RECOVERY USERDATA SYSTEM; do
@@ -880,7 +963,7 @@ cmd_info() {
 			say "$p: not found"
 		fi
 	done
-	for t in hfsfuse hfsdump apfs-fuse apfs-extract apfsutil mkapfs apfsck; do
+	for t in hfsfuse hfsdump apfs-fuse apfs-extract apfsutil mkapfs apfsck scion-fastbootd; do
 		if command -v "$t" >/dev/null 2>&1; then say "tool: $(command -v "$t")"; else say "tool missing: $t"; fi
 	done
 	if [ -c /dev/fuse ]; then say "/dev/fuse: present"; else say "/dev/fuse: absent"; fi
@@ -890,7 +973,7 @@ cmd_info() {
 }
 
 usage() {
-	sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # The last line of every command says how it ended (TWRP's terminalcommand,
@@ -932,6 +1015,7 @@ inspect) cmd_inspect ;;
 fsck) cmd_fsck ;;
 policy) cmd_policy ;;
 check) cmd_check "$@" ;;
+fastboot) cmd_fastboot "$@" ;;
 info) cmd_info ;;
 version) echo "scion $SCION_VERSION" ;;
 help|-h|--help) usage ;;

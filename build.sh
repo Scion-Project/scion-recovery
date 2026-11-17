@@ -17,6 +17,7 @@
 #                  (see third_party/apfs-fuse/; built in Alpine/musl)
 #   APFSPROGS_BIN  static aarch64 mkapfs, apfsck, apfs-label, apfs-snap
 #                  (scripts/build-apfsprogs.sh)
+#   FASTBOOTD_BIN  static aarch64 scion-fastbootd (scripts/build-fastbootd.sh)
 #   WORK, OUT      scratch and output directories (default ./work, ./out)
 #   MAGISKBOOT     an x86_64 magiskboot; downloaded from Magisk v31.1 if unset
 #
@@ -30,7 +31,9 @@ HFS_BIN=${HFS_BIN:?set HFS_BIN to the dir with hfsfuse, hfsdump}
 HFS_BIN=$(realpath "$HFS_BIN")
 APFS_BIN=${APFS_BIN:?set APFS_BIN to the dir with apfs-fuse, apfs-extract, apfsutil}
 APFSPROGS_BIN=${APFSPROGS_BIN:?set APFSPROGS_BIN to the dir with mkapfs, apfsck, apfs-label, apfs-snap}
+FASTBOOTD_BIN=${FASTBOOTD_BIN:?set FASTBOOTD_BIN to the dir with scion-fastbootd (scripts/build-fastbootd.sh)}
 APFS_BIN=$(realpath "$APFS_BIN")
+FASTBOOTD_BIN=$(realpath "$FASTBOOTD_BIN")
 APFSPROGS_BIN=$(realpath "$APFSPROGS_BIN")
 
 TWRP_NAME=twrp-3.7.0_9-0-starlte.img
@@ -81,6 +84,7 @@ done
 for b in hfsfuse hfsdump; do [ -f "$HFS_BIN/$b" ] || { echo "missing $HFS_BIN/$b" >&2; exit 1; }; done
 for b in apfs-fuse apfs-extract apfsutil; do [ -f "$APFS_BIN/$b" ] || { echo "missing $APFS_BIN/$b" >&2; exit 1; }; done
 for b in mkapfs apfsck apfs-label apfs-snap; do [ -f "$APFSPROGS_BIN/$b" ] || { echo "missing $APFSPROGS_BIN/$b" >&2; exit 1; }; done
+[ -f "$FASTBOOTD_BIN/scion-fastbootd" ] || { echo "missing $FASTBOOTD_BIN/scion-fastbootd" >&2; exit 1; }
 
 # 4b. Scion's theme (scripts/theme.py): the stock /twres files it changes, made
 #     from the stock ones here, replace them in place; scion.xml is new.
@@ -118,6 +122,7 @@ python3 "$HERE/scripts/fstab.py" check "$O/etc/scion-partitions.conf" recovery.f
 	"add 0755 sbin/apfsck $APFSPROGS_BIN/apfsck" \
 	"add 0755 sbin/apfs-label $APFSPROGS_BIN/apfs-label" \
 	"add 0755 sbin/apfs-snap $APFSPROGS_BIN/apfs-snap" \
+	"add 0755 sbin/scion-fastbootd $FASTBOOTD_BIN/scion-fastbootd" \
 	"ln apfsck sbin/fsck.apfs" \
 	"ln mkapfs sbin/mkfs.apfs" \
 	"mkdir 0755 scion" \

@@ -47,7 +47,7 @@ case $fmt in *lzma*) ok "new ramdisk is LZMA (stock: LZMA)";; *) bad "new ramdis
 python3 "$HERE/scripts/cpiodiff.py" stock/ramdisk.cpio new/ramdisk.cpio --allow-added \
 	init.recovery.samsungexynos9810.rc sbin/scion sbin/scion-bootlogs sbin/apfs-fuse sbin/apfs-extract \
 	sbin/apfsutil sbin/mkapfs sbin/apfsck sbin/apfs-label sbin/apfs-snap sbin/fsck.apfs sbin/mkfs.apfs \
-	sbin/hfsfuse sbin/hfsdump scion scion/apfs scion/hfs twres/scion.xml etc/scion-partitions.conf \
+	sbin/hfsfuse sbin/hfsdump sbin/scion-fastbootd scion scion/apfs scion/hfs twres/scion.xml etc/scion-partitions.conf \
 	--allow-changed twres/ui.xml twres/portrait.xml twres/splash.xml twres/images etc/recovery.fstab \
 	| tee cpiodiff.txt | grep -vE "^(ADDED|REPLACED)" || true
 grep -E "^(ADDED|REPLACED)" cpiodiff.txt
@@ -73,7 +73,7 @@ size=$(stat -c %s "$NEW")
 if [ "$size" -le "$RECOVERY_SIZE" ]; then ok "size $size <= RECOVERY $RECOVERY_SIZE ($((RECOVERY_SIZE - size)) bytes spare)"; else bad "size $size > $RECOVERY_SIZE"; fi
 
 echo "== 5. binaries and scripts"
-for f in hfsfuse hfsdump apfs-fuse apfs-extract apfsutil mkapfs apfsck apfs-label apfs-snap; do
+for f in hfsfuse hfsdump apfs-fuse apfs-extract apfsutil mkapfs apfsck apfs-label apfs-snap scion-fastbootd; do
 	p=rdx/sbin/$f
 	if python3 "$HERE/scripts/elfcheck.py" "$p"; then ok "$f: $(file -b "$p" | cut -d, -f1-2,4)"; else bad "$f is not static aarch64"; fi
 done

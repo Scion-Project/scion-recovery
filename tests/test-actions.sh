@@ -185,6 +185,34 @@ T="policy lists BOOT and USERDATA"; t sh -c "$S policy | grep -q 'Scion may writ
 T="help"; t sh -c "$S help | grep -q 'scion write-root IMG'"
 T="unknown command exits 2"; t sh -c "$S frobnicate >/dev/null 2>&1; [ \$? -eq 2 ]"
 
+echo "== $SH: fastboot start/stop (fake gadget, fake daemon)"
+G=$W/gadget; A=$W/android0; mkdir -p "$G" "$A" "$W/ffs" "$W/run"
+: > "$W/ffs/ep0"; echo 10c00000.dwc3 > "$G/UDC"; echo 1 > "$A/enable"
+cat > "$W/bin/setprop" <<EOF2
+#!/bin/sh
+echo "\$*" >> "$W/setprop.log"
+EOF2
+printf '#!/bin/sh\nexit 1\n' > "$W/bin/pidof"
+cat > "$W/fbd" <<EOF2
+#!/bin/sh
+# a stand-in for scion-fastbootd: says it is ready, then waits
+while [ \$# -gt 0 ]; do [ "\$1" = --ready ] && echo \$\$ > "\$2"; shift; done
+exec sleep 60
+EOF2
+chmod +x "$W/bin/setprop" "$W/bin/pidof" "$W/fbd"
+FB="env SCION_GADGET=$G SCION_ANDROID_USB=$A SCION_FFS=$W/ffs SCION_FBD=$W/fbd SCION_FBD_RUN=$W/run $S fastboot"
+T="fastboot start"; t $FB start
+T="gadget is Google's fastboot (18d1:4ee0), FunctionFS function on, enabled"; t sh -c "[ \"\$(cat $G/idVendor $G/idProduct $A/functions $G/UDC $A/enable | tr '\n' ' ')\" = '0x18D1 0x4EE0 adb 10c00000.dwc3 1 ' ]"
+T="adbd stopped first"; t grep -qx 'ctl.stop adbd' "$W/setprop.log"
+T="the daemon runs"; t sh -c "kill -0 \$(cat $W/run/scion-fastbootd.pid)"
+T="start again: already running"; t sh -c "$FB start | grep -q 'already running'"
+pid=$(cat "$W/run/scion-fastbootd.pid")
+T="fastboot stop"; t $FB stop
+T="the daemon is gone"; t sh -c "sleep 0.2; ! kill -0 $pid 2>/dev/null"
+T="adbd started again, gadget disabled for it"; t sh -c "grep -qx 'ctl.start adbd' $W/setprop.log && [ \"\$(cat $A/enable)\" = 0 ]"
+rm "$W/ffs/ep0"
+T="start refused without FunctionFS"; nt $FB start
+
 echo "== $SH: nothing protected was written"
 for p in $protected; do T="$p unchanged"; t test "$(h "$W/byname/$p")" = "$(cat "$W/before-$p")"; done
 
