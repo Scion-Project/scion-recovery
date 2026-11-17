@@ -1,0 +1,444 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: MIT-0 -->
+<!-- Scion recovery's pages for TWRP 3.7.0's GUI. ui.xml includes this file
+     after portrait.xml (scripts/theme.py adds the include), so every style,
+     template and variable of the stock theme is available here. TeamWin's own
+     home page is still there as "twrp_home"; "main2" (the page TWRP returns to
+     on Home) is Scion's.
+
+     Every Scion action runs /sbin/scion through TWRP's terminalcommand action,
+     whose output goes to the console on the page; the script ends with a line
+     "scion: RESULT: OK" or "scion: RESULT: FAILED ...". terminalcommand does not
+     report the command's exit status to the GUI, so scion_done shows the log
+     rather than TWRP's "Successful"/"Failed".
+
+     Coordinates are in TWRP's 1080x1920 design space; TWRP scales them to the
+     S9's 1440x2960 panel. NOT run on a phone: checked by scripts/theme.py lint
+     (well-formed, every page, style, template, resource and variable it names
+     exists) only. -->
+<recovery>
+	<variables>
+		<variable name="scion_section1_y" value="276"/>
+		<variable name="scion_btn_row1_y" value="330"/>
+		<variable name="scion_btn_row2_y" value="530"/>
+		<variable name="scion_btn_row3_y" value="730"/>
+		<variable name="scion_btn_row4_y" value="930"/>
+		<variable name="scion_section2_y" value="1150"/>
+		<variable name="scion_twrp_row1_y" value="1210"/>
+		<variable name="scion_twrp_row2_y" value="1360"/>
+		<variable name="scion_footer_y" value="1560"/>
+		<variable name="scion_list_y" value="300"/>
+		<variable name="scion_list_h" value="1000"/>
+		<variable name="scion_note_y" value="1340"/>
+		<variable name="tw_scion_advanced" value="0"/>
+	</variables>
+
+	<pages>
+		<page name="main2">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Scion recovery</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Galaxy S9 · TWRP %tw_version%</text>
+			</text>
+
+			<text style="text_m_accent">
+				<placement x="%indent%" y="%scion_section1_y%"/>
+				<text>Scion</text>
+			</text>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%scion_btn_row1_y%"/>
+				<text>Boot image</text>
+				<action function="page">scion_boot</action>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%center_x%" y="%scion_btn_row1_y%"/>
+				<text>Save logs</text>
+				<action function="page">scion_logs</action>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%scion_btn_row2_y%"/>
+				<text>iOS disks</text>
+				<action function="page">scion_disks</action>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%center_x%" y="%scion_btn_row2_y%"/>
+				<text>Phone info</text>
+				<actions>
+					<action function="set">tw_back=main2</action>
+					<action function="set">tw_action_text1=Phone info</action>
+					<action function="set">tw_action_param=/sbin/scion info</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</button>
+
+			<text style="text_m_accent">
+				<placement x="%indent%" y="%scion_section2_y%"/>
+				<text>TWRP</text>
+			</text>
+
+			<button style="button_quarter_width">
+				<placement x="%indent%" y="%scion_twrp_row1_y%"/>
+				<text>{@install_btn=Install}</text>
+				<actions>
+					<action function="queueclear"/>
+					<action function="set">tw_selectimage=0</action>
+					<action function="page">install</action>
+				</actions>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%btn4_col2_x%" y="%scion_twrp_row1_y%"/>
+				<text>{@wipe_btn=Wipe}</text>
+				<action function="page">wipe</action>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%btn4_col3_x%" y="%scion_twrp_row1_y%"/>
+				<text>{@backup_btn=Backup}</text>
+				<action function="page">backup</action>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%btn4_col4_x%" y="%scion_twrp_row1_y%"/>
+				<text>{@restore_btn=Restore}</text>
+				<action function="page">restore</action>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%indent%" y="%scion_twrp_row2_y%"/>
+				<text>{@mount_btn=Mount}</text>
+				<action function="page">mount</action>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%btn4_col2_x%" y="%scion_twrp_row2_y%"/>
+				<text>{@settings_btn=Settings}</text>
+				<action function="page">settings</action>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%btn4_col3_x%" y="%scion_twrp_row2_y%"/>
+				<text>{@advanced_btn=Advanced}</text>
+				<action function="page">advanced</action>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%btn4_col4_x%" y="%scion_twrp_row2_y%"/>
+				<text>{@reboot_btn=Reboot}</text>
+				<action function="page">reboot</action>
+			</button>
+
+			<text style="text_s">
+				<placement x="%center_x%" y="%scion_footer_y%" placement="5"/>
+				<text>Scion's actions write BOOT and USERDATA only.</text>
+			</text>
+
+		</page>
+
+		<!-- Entered from every Scion button: a fresh operation state, then scion_run. -->
+		<page name="scion_go">
+			<action>
+				<action function="set">tw_operation_state=0</action>
+				<action function="page">scion_run</action>
+			</action>
+		</page>
+
+		<!-- Run tw_action_param (a /sbin/scion command line) with its output in the console. -->
+		<page name="scion_run">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>%tw_action_text1%</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Running...</text>
+			</text>
+
+			<template name="console"/>
+
+			<template name="progress_bar"/>
+
+			<action>
+				<condition var1="tw_operation_state" var2="1"/>
+				<action function="page">scion_done</action>
+			</action>
+
+			<action>
+				<actions>
+					<action function="set">tw_terminal_location=/tmp</action>
+					<action function="terminalcommand">%tw_action_param%</action>
+				</actions>
+			</action>
+		</page>
+
+		<page name="scion_done">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>%tw_action_text1%</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Done: the last line says OK or FAILED</text>
+			</text>
+
+			<template name="console"/>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%row21a_y%"/>
+				<text>{@back_btn=Back}</text>
+				<actions>
+					<action function="set">tw_clear_destination=%tw_back%</action>
+					<action function="page">clear_vars</action>
+				</actions>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%center_x%" y="%row21a_y%"/>
+				<text>Home</text>
+				<actions>
+					<action function="set">tw_clear_destination=main2</action>
+					<action function="page">clear_vars</action>
+				</actions>
+			</button>
+
+			<action>
+				<touch key="home"/>
+				<actions>
+					<action function="set">tw_clear_destination=main2</action>
+					<action function="page">clear_vars</action>
+				</actions>
+			</action>
+
+			<action>
+				<touch key="back"/>
+				<actions>
+					<action function="set">tw_clear_destination=%tw_back%</action>
+					<action function="page">clear_vars</action>
+				</actions>
+			</action>
+		</page>
+
+		<!-- A swipe before anything that writes. tw_text1..3 say what, tw_slider_text the swipe. -->
+		<page name="scion_confirm">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>%tw_action_text1%</text>
+			</text>
+
+			<text style="text_m_accent">
+				<placement x="%center_x%" y="%row2_y%" placement="5"/>
+				<text>%tw_text1%</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%center_x%" y="%row4_y%" placement="5"/>
+				<text>%tw_text2%</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%center_x%" y="%row6_y%" placement="5"/>
+				<text>%tw_text3%</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%center_x%" y="%row9_y%" placement="5"/>
+				<text>{@back_cancel=Press back button to cancel.}</text>
+			</text>
+
+			<slider>
+				<text>%tw_slider_text%</text>
+				<action function="page">scion_go</action>
+			</slider>
+
+			<action>
+				<touch key="back"/>
+				<actions>
+					<action function="set">tw_clear_destination=%tw_back%</action>
+					<action function="page">clear_vars</action>
+				</actions>
+			</action>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+
+		<page name="scion_logs">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Save logs</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Read only: nothing on the phone is changed</text>
+			</text>
+
+			<listbox style="advanced_listbox">
+				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
+
+				<listitem name="Save the logs of the last run">
+					<actions>
+						<action function="set">tw_back=scion_logs</action>
+						<action function="set">tw_action_text1=Save logs</action>
+						<action function="set">tw_action_param=/sbin/scion logs</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+
+				<listitem name="Copy iOS crash logs (CrashReporter)">
+					<actions>
+						<action function="set">tw_back=scion_logs</action>
+						<action function="set">tw_action_text1=iOS crash logs</action>
+						<action function="set">tw_action_param=/sbin/scion pull</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+
+				<listitem name="Show the logs saved at this boot">
+					<actions>
+						<action function="set">tw_back=scion_logs</action>
+						<action function="set">tw_action_text1=Logs of this boot</action>
+						<action function="set">tw_action_param=ls -l /tmp/scion-boot /tmp/scion-boot/pstore</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+			</listbox>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note_y%"/>
+				<text>Logs go to /tmp (RAM). On a computer: adb pull the path printed.</text>
+			</text>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+
+		<page name="scion_disks">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>iOS disks</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>HFS Plus and APFS, read only</text>
+			</text>
+
+			<listbox style="advanced_listbox">
+				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
+
+				<listitem name="Mount iOS's /private/var (read only)">
+					<actions>
+						<action function="set">tw_back=scion_disks</action>
+						<action function="set">tw_action_text1=Mount iOS var</action>
+						<action function="set">tw_action_param=/sbin/scion mountvar</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+
+				<listitem name="Unmount">
+					<actions>
+						<action function="set">tw_back=scion_disks</action>
+						<action function="set">tw_action_text1=Unmount iOS var</action>
+						<action function="set">tw_action_param=/sbin/scion umountvar</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+			</listbox>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note_y%"/>
+				<text>Mounted at /scion/var: browse it with Advanced > File Manager.</text>
+			</text>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+
+		<page name="scion_boot">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Write a boot image</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Pick an .img: it goes to BOOT only</text>
+			</text>
+
+			<template name="sort_options"/>
+
+			<fileselector>
+				<placement x="%indent%" y="%row3_y%" w="%content_width%" h="%fileselector_install_height%"/>
+				<text>%tw_zip_location%</text>
+				<filter extn=".img" folders="1" files="1"/>
+				<path name="tw_zip_location" default="/sdcard"/>
+				<data name="tw_filename"/>
+				<selection name="tw_file"/>
+			</fileselector>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%row21a_y%"/>
+				<text>{@select_storage_btn=Select Storage}</text>
+				<actions>
+					<action function="set">tw_back=scion_boot</action>
+					<action function="overlay">select_storage</action>
+				</actions>
+			</button>
+
+			<action>
+				<condition var1="tw_filename" op="modified"/>
+				<actions>
+					<action function="set">tw_back=scion_boot</action>
+					<action function="set">tw_action_text1=Write BOOT</action>
+					<action function="set">tw_text1=%tw_file%</action>
+					<action function="set">tw_text2=goes to BOOT, then is read back and compared</action>
+					<action function="set">tw_text3=Nothing else is written.</action>
+					<action function="set">tw_slider_text=Swipe to write BOOT</action>
+					<action function="set">tw_action_param=/sbin/scion flash "%tw_filename%" BOOT</action>
+					<action function="page">scion_confirm</action>
+				</actions>
+			</action>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+	</pages>
+</recovery>

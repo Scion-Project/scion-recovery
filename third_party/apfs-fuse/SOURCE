@@ -1,5 +1,8 @@
 apfs-fuse: https://github.com/sgan81/apfs-fuse commit 66b86bd525e8, GPL-2.0-or-later,
 plus apfs-fuse-local.patch (musl: fstat/pread instead of fstat64/pread64; adds apfs-extract).
+apfs-extract/apfs-extract.cpp is the extractor the patch's CMake target builds (GPL-2.0-or-later, on
+ApfsLib); it sits beside the apfs-fuse tree (src/apfs-extract), as in apfs-fuse-src-66b86bd-patched.tar.gz.
+Until 17 November 2026 it was only in that tarball, not in this repository.
 Built by the s9-recovery-apfs work: build-in-alpine.sh, run as
   docker run --rm --platform linux/amd64 -v $PWD:/w alpine:3.20 /w/scripts/build-in-alpine.sh
 with /w/src/apfs-fuse the patched tree. Binaries used in the image (sha256):

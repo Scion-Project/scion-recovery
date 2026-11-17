@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: MIT-0
+# Builds Scion recovery on GitHub's runners: the static aarch64 tools (hfsfuse
+# and apfs-fuse in Alpine containers, apfsprogs with zig), then build.sh on
+# TeamWin's stock image and verify.sh. The image, its Odin tar and SHA256SUMS
+# are the run's artifact. Nothing here talks to a phone.
+name: build
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends librsvg2-bin python3-pil shellcheck cpio mksh file
+          df -h . | tail -1
+
+      - name: Tool binaries from cache
+        id: tools-cache
+        uses: actions/cache@v4
+        with:
+          path: tools-out
+          key: tools-v1-${{ hashFiles('third_party/**', 'scripts/build-apfsprogs.sh') }}
+
+      - name: hfsfuse, hfsdump (Alpine, static aarch64)
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          W=$PWD/tools-out/hfsfuse; mkdir -p "$W"; cd "$RUNNER_TEMP"
+          git clone -q --branch 0.469 https://github.com/0x09/hfsfuse hfsfuse-src
+          test "$(git -C hfsfuse-src rev-parse HEAD)" = e2a84c602cbce6ea4a2fb0441fa1fe56c2c4e907
+          echo '#define HFSFUSE_VERSION_STRING "0.469-e2a84c6"' > version.h
+          git -C hfsfuse-src archive --prefix hfsfuse-0.469/src/ --add-file "$PWD/version.h" --prefix hfsfuse-0.469/ HEAD -o "$W/hfsfuse-0.469.tar.gz"
+          sha256sum "$W/hfsfuse-0.469.tar.gz"
+          cp "$GITHUB_WORKSPACE/third_party/hfsfuse/build-in-alpine.sh" "$W/"
+          docker run --rm -v "$W:/w" alpine:3.20 sh /w/build-in-alpine.sh
+
+      - name: apfs-fuse, apfs-extract, apfsutil (Alpine, static aarch64)
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          W=$PWD/tools-out/apfs-fuse; mkdir -p "$W/src" "$W/scripts"
+          git clone -q https://github.com/sgan81/apfs-fuse "$W/src/apfs-fuse"
+          git -C "$W/src/apfs-fuse" checkout -q 66b86bd525e8
+          git -C "$W/src/apfs-fuse" submodule update -q --init
+          git -C "$W/src/apfs-fuse" apply "$GITHUB_WORKSPACE/third_party/apfs-fuse/apfs-fuse-local.patch"
+          cp -r "$GITHUB_WORKSPACE/third_party/apfs-fuse/apfs-extract" "$W/src/"
+          cp "$GITHUB_WORKSPACE/third_party/apfs-fuse/build-in-alpine.sh" "$W/scripts/"
+          docker run --rm -v "$W:/w" alpine:3.20 sh /w/scripts/build-in-alpine.sh
+          sudo rm -rf "$W/src"
+
+      - name: apfsprogs (zig, static aarch64)
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          WORK=$RUNNER_TEMP/apfsprogs-work scripts/build-apfsprogs.sh "$PWD/tools-out/apfsprogs"
+
+      - name: Build the image
+        run: |
+          HFS_BIN=tools-out/hfsfuse/bin/aarch64 APFS_BIN=tools-out/apfs-fuse/bin/aarch64 \
+            APFSPROGS_BIN=tools-out/apfsprogs ./build.sh
+
+      - name: Verify (no phone)
+        run: ./verify.sh
+
+      - name: Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scion-recovery
+          path: |
+            out/scion-recovery.img
+            out/scion-recovery.tar
+            out/SHA256SUMS
+          if-no-files-found: error

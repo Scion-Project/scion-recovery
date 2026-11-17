@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: MIT-0 -->
+<!-- Scion recovery's splash screen, shown while TWRP loads its GUI. Drawn by
+     TWRP from this file and images/splashlogo.png (the Scion logo, rendered
+     from theme/art/scion-logo.svg by scripts/theme.py). The design space is
+     1080x1920 like TWRP's portrait_hdpi theme; TWRP scales it to the S9's
+     1440x2960 panel. -->
+<recovery>
+	<details>
+		<resolution width="1080" height="1920"/>
+		<author>Scion project</author>
+		<title>Scion recovery</title>
+		<description>splash screen</description>
+		<themeversion>5</themeversion>
+	</details>
+
+	<resources>
+		<font name="font_l" filename="RobotoCondensed-Regular.ttf" size="64"/>
+		<font name="font_m" filename="RobotoCondensed-Regular.ttf" size="40"/>
+		<font name="font_s" filename="RobotoCondensed-Regular.ttf" size="32"/>
+		<image name="splashlogo" filename="splashlogo" retainaspect="1"/>
+	</resources>
+
+	<variables>
+		<variable name="screen_width" value="1080"/>
+		<variable name="screen_height" value="1920"/>
+		<variable name="background_color" value="#0B0E12"/>
+		<variable name="accent_color" value="#4CC47F"/>
+		<variable name="text_color" value="#E6EBF1"/>
+		<variable name="mute_color" value="#A3AFBD"/>
+	</variables>
+
+	<pages>
+		<page name="splash">
+			<background color="%background_color%"/>
+
+			<image>
+				<image resource="splashlogo"/>
+				<placement x="540" y="780" placement="4"/>
+			</image>
+
+			<text color="%text_color%">
+				<font resource="font_l"/>
+				<placement x="540" y="1150" placement="5"/>
+				<text>Scion recovery</text>
+			</text>
+
+			<text color="%accent_color%">
+				<font resource="font_m"/>
+				<placement x="540" y="1240" placement="5"/>
+				<text>Galaxy S9 (SM-G960F)</text>
+			</text>
+
+			<text color="%mute_color%">
+				<font resource="font_s"/>
+				<placement x="540" y="1760" placement="5"/>
+				<text>Built on TWRP %tw_version% by TeamWin</text>
+			</text>
+		</page>
+	</pages>
+</recovery>
