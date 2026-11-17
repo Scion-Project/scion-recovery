@@ -1,27 +1,42 @@
 #!/sbin/sh
 # SPDX-License-Identifier: MIT-0
-# scion: Scion recovery helper for the Galaxy S9 (starlte) running HakiOS.
+# scion: Scion recovery helper for the Galaxy S9 (starlte, SM-G960F).
 #
-#   scion logs [DIR]        last_kmsg, pstore (the ESS log_pstore region), the
-#                           Samsung reset info, dmesg and the reserved log
-#                           regions into DIR/<timestamp> (default /tmp/scion-logs)
-#   scion mountvar [VOL]    mount the var volume read-only and point /scion/var
-#                           at its var directory: USERDATA (HFS Plus, with
-#                           hfsfuse; or APFS, with apfs-fuse, volume VOL), then
-#                           SYSTEM (SCION_VAR_PARTS overrides)
-#   scion umountvar         undo mountvar
-#   scion pull [DIR]        tar the CrashReporter logs and hakios-runs out of
-#                           /scion/var (without FUSE: hfsdump/apfs-extract)
-#   scion flash IMG [BOOT]  write IMG to BOOT, then read it back and compare
-#                           sha256. Any partition other than BOOT is refused.
-#   scion info              what the helper sees (devices, mounts, tools)
+#   scion logs [DIR]            last_kmsg, pstore, reset info, dmesg -> DIR/<time>
+#   scion mountvar [VOL]        iOS's var volume read-only at /scion/var
+#   scion umountvar             undo mountvar
+#   scion pull [DIR]            iOS crash logs (CrashReporter, hakios-runs) -> tar.gz
+#   scion flash IMG [BOOT]      IMG -> BOOT, read back and compared
+#   scion write-root IMG --yes [--from N]
+#                               raw iOS root/var image -> USERDATA (ERASES
+#                               Android's data), in pieces, each read back
+#   scion restore-root IMG --yes   the same, and IMG.sha256 must be there
+#   scion backup-root [DIR]     USERDATA's HFS Plus/APFS volume -> DIR (+ .sha256)
+#   scion backup-boot [DIR]     BOOT -> DIR/boot-<time>.img (+ .sha256)
+#   scion copy-efs [DIR]        EFS, SEC_EFS, CPEFS -> DIR, READ ONLY
+#   scion switch OS [--anyway]  OS: android, ios165 or ios27. The boot
+#                               library's boot-OS.img -> BOOT, checked first
+#   scion bootlib [save OS]     list the boot library, or save BOOT into it
+#   scion facts                 model, boot loader, battery, storage
+#   scion inspect               what USERDATA and SYSTEM hold (their headers)
+#   scion fsck                  check APFS read only (apfsck); HFS Plus header
+#   scion policy                what Scion may write (/etc/scion-partitions.conf)
+#   scion check PART            exit 0 if Scion may write PART
+#   scion info                  devices, mounts, tools
 #
-# Everything is read-only except "flash", which only ever touches BOOT.
-# Written for TWRP's /sbin/sh (mksh) and busybox; POSIX sh only.
+# Writes go only to the partitions /etc/scion-partitions.conf lists under
+# "write" (BOOT, USERDATA): checked by name, by the kernel's PARTNAME of the
+# device the name resolves to, and refused for a device that a "never" name
+# (EFS, the modem, the boot loader, RPMB, ...) resolves to. One write at a
+# time (/tmp/scion-write.lock, shared with scion-fastbootd). Writes are logged
+# to /tmp/scion-actions.log; each command ends with "scion: RESULT: OK" or
+# "scion: RESULT: FAILED". POSIX sh for TWRP's mksh and busybox.
+# NOT run on a phone: tested on a computer against fake partitions
+# (tests/test-actions.sh).
 
 set -u
 
-SCION_VERSION=2
+SCION_VERSION=3
 PATH=/sbin:/system/bin:/system/xbin:/bin:/usr/bin:$PATH
 export PATH
 
@@ -39,6 +54,15 @@ SCION_VAR_PARTS=${SCION_VAR_PARTS:-"USERDATA SYSTEM"}
 SCION_VOLS=${SCION_VOLS:-"0 1 2 3 4"}
 CRASH_SUBDIR=mobile/Library/Logs/CrashReporter
 RUNS_FILE=hakios-runs
+
+SCION_POLICY=${SCION_POLICY:-/etc/scion-partitions.conf}
+SCION_LOCK=${SCION_LOCK:-/tmp/scion-write.lock}
+SCION_ACTLOG=${SCION_ACTLOG:-/tmp/scion-actions.log}
+# Where backups and the boot library go: the first of these that is mounted
+# and writable (the SD card, a USB drive, Android's internal storage).
+SCION_STORAGE=${SCION_STORAGE:-"/external_sd /usb-otg /sdcard"}
+SCION_CHUNK_MB=${SCION_CHUNK_MB:-64}
+SCION_PROC=${SCION_PROC:-/proc}
 
 say() { printf 'scion: %s\n' "$*"; }
 die() { printf 'scion: error: %s\n' "$*" >&2; exit 1; }
@@ -345,38 +369,506 @@ cmd_pull() {
 	say "on the computer: adb pull $tarball"
 }
 
+# ---- numbers, sizes, hashes ------------------------------------------------
+# mksh's arithmetic is 32-bit and partitions are bigger: compare and divide
+# byte counts in awk (doubles: exact to 2^53).
+big_le() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 <= b + 0) }'; }
+big_eq() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 == b + 0) }'; }
+big_mod() { awk -v a="$1" -v b="$2" 'BEGIN { printf "%.0f", a - b * int(a / b) }'; }
+big_div_up() { awk -v a="$1" -v b="$2" 'BEGIN { q = int(a / b); if (q * b < a) q++; printf "%d", q }'; }
+human() { awk -v a="$1" 'BEGIN { split("B KiB MiB GiB TiB", u); i = 1; while (a >= 1024 && i < 5) { a /= 1024; i++ } printf "%.1f %s", a, u[i] }'; }
+
+fsize() { wc -c < "$1" | tr -d ' '; }
+
+# psize DEV: the size of a block device in bytes (a plain file's size, for
+# the host tests' fake partitions).
+psize() {
+	if v=$(blockdev --getsize64 "$1" 2>/dev/null) && [ -n "$v" ]; then echo "$v"; return 0; fi
+	[ -f "$(readlink -f "$1")" ] && { fsize "$1"; return 0; }
+	return 1
+}
+
+sha() { sha256sum | cut -c1-64; }
+
+# flush DEV: what was written is on the device and the next read comes from it.
+flush() {
+	sync
+	blockdev --flushbufs "$1" 2>/dev/null
+	echo 3 > "$SCION_PROC/sys/vm/drop_caches" 2>/dev/null
+	return 0
+}
+
+# sidecar_check IMG HASH: IMG.sha256 (sha256sum's format, or the bare hash), if
+# it is there, must name HASH. "need" as $3: it must be there.
+sidecar_check() {
+	sc=$1.sha256
+	if [ ! -f "$sc" ]; then
+		[ "${3:-}" = need ] && die "$sc is missing: it is needed to check $1 before it is written"
+		say "no ${sc##*/} beside the image: not checked against one (sha256 $2)"
+		return 0
+	fi
+	exp=$(cut -c1-64 < "$sc" | head -1 | tr 'A-F' 'a-f')
+	[ "$exp" = "$2" ] || die "$1 does not match ${sc##*/} (file $2, expected $exp): refusing to write it"
+	say "${1##*/} matches ${sc##*/}"
+}
+
+log_action() { printf '%s %s\n' "$(stamp)" "$*" >> "$SCION_ACTLOG" 2>/dev/null; return 0; }
+
+# ---- the write policy -------------------------------------------------------
+# policy_names write|never: the names on that kind of line in the policy.
+policy_names() {
+	[ -r "$SCION_POLICY" ] || die "no write policy at $SCION_POLICY: every write is refused"
+	awk -v k="$1" '$1 == k { for (i = 2; i <= NF; i++) { if ($i ~ /^#/) break; print toupper($i) } }' "$SCION_POLICY"
+}
+
+# writable_dev NAME: print the block device of partition NAME when the policy
+# lets Scion write it; otherwise say why and fail. Checks, in order: a plain
+# partition name; not on a "never" line; on a "write" line; the by-name link
+# exists; the kernel's PARTNAME of the device it resolves to is NAME; no
+# "never" partition resolves to that same device.
+writable_dev() {
+	want=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
+	case $want in
+	''|*[!A-Z0-9_]*) die "'$1' is not a partition name" ;;
+	esac
+	nev=$(policy_names never) || exit 1
+	wr=$(policy_names write) || exit 1
+	for n in $nev; do
+		[ "$n" = "$want" ] && die "refusing to write $want: it is on the 'never' list of $SCION_POLICY (identity, modem, boot loader, secure storage)"
+	done
+	ok=0
+	for n in $wr; do [ "$n" = "$want" ] && ok=1; done
+	# shellcheck disable=SC2086 # the names, one word each
+	[ $ok -eq 1 ] || die "refusing to write $want: Scion writes only: $(printf '%s ' $wr)"
+	dev=$(find_part "$want") || die "$want partition not found"
+	real=$(readlink -f "$dev") || die "cannot resolve $dev"
+	pn=$(partname "$dev")
+	[ "$pn" = "$want" ] || die "$dev resolves to a partition named '${pn:-?}', not $want: refusing"
+	for n in $nev; do
+		d=$(find_part "$n") || continue
+		[ "$(readlink -f "$d")" = "$real" ] && die "$dev is the same device as $n: refusing"
+	done
+	echo "$dev"
+}
+
+# ---- one write at a time ----------------------------------------------------
+# A directory is the lock (mkdir is atomic); scion-fastbootd takes the same
+# one. A lock whose owner is gone is taken over.
+lock_take() {
+	if ! mkdir "$SCION_LOCK" 2>/dev/null; then
+		pid=$(cat "$SCION_LOCK/pid" 2>/dev/null)
+		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+			die "another write is running (pid $pid: $(cat "$SCION_LOCK/what" 2>/dev/null)): wait for it to finish"
+		fi
+		say "taking over a stale write lock (its pid ${pid:-?} is gone)"
+		rm -rf "$SCION_LOCK"
+		mkdir "$SCION_LOCK" 2>/dev/null || die "cannot take the write lock $SCION_LOCK"
+	fi
+	echo $$ > "$SCION_LOCK/pid"
+	echo "$*" > "$SCION_LOCK/what"
+	LOCKED=1
+}
+
+lock_drop() {
+	if [ "${LOCKED:-0}" = 1 ]; then rm -rf "$SCION_LOCK"; LOCKED=0; fi
+	return 0
+}
+
+# Android's /data and our own FUSE mounts must be gone before USERDATA is written.
+userdata_unused() {
+	if grep -q ' /data ' /proc/mounts 2>/dev/null; then
+		umount /data 2>/dev/null || die "/data is mounted and could not be unmounted: unmount it on TWRP's Mount page first"
+		say "unmounted /data"
+	fi
+	if is_mounted "$SCION_MNT/hfs" || is_mounted "$SCION_MNT/apfs"; then
+		cmd_umountvar >/dev/null || die "could not unmount $SCION_MNT"
+	fi
+	return 0
+}
+
+# ---- verified writes --------------------------------------------------------
+# write_file IMG NAME [need]: IMG -> partition NAME (whole file, from byte 0).
+# Hash of IMG first (and against IMG.sha256), the old contents' hash logged,
+# then the write, a flush and the read-back hash, which must match.
+write_file() {
+	img=$1; name=$2
+	[ -f "$img" ] || die "$img: no such file"
+	dev=$(writable_dev "$name") || exit 1
+	size=$(fsize "$img")
+	big_le 1 "$size" || die "$img is empty"
+	ps=$(psize "$dev") || die "cannot read the size of $dev"
+	big_le "$size" "$ps" || die "$img is $size bytes, $name is $ps"
+	want=$(sha < "$img")
+	sidecar_check "$img" "$want" "${3:-}"
+	lock_take "write $name from $img"
+	before=$(head -c "$size" "$dev" | sha)
+	say "writing $img ($size bytes, sha256 $want) to $dev ($name, $ps bytes)"
+	log_action "write $name dev=$dev from=$img size=$size sha256=$want before=$before"
+	dd if="$img" of="$dev" bs=1048576 conv=fsync,notrunc 2>/dev/null || die "dd to $name failed"
+	flush "$dev"
+	got=$(head -c "$size" "$dev" | sha)
+	if [ "$got" != "$want" ]; then
+		log_action "write $name MISMATCH read=$got"
+		die "read-back MISMATCH on $name: wrote $want, read $got. Do not reboot into it; write it again."
+	fi
+	log_action "write $name ok read=$got"
+	say "read-back OK: sha256 $got"
+	lock_drop
+}
+
 cmd_flash() {
 	img=${1:-}
 	target=${2:-BOOT}
 	[ -n "$img" ] || die "usage: scion flash IMG [BOOT]"
-	# Only BOOT. RECOVERY, EFS, BOTA, PARAM, the bootloader and the rest are refused.
-	case $target in
-	BOOT|boot) target=BOOT ;;
-	*) die "refusing to write '$target': scion flash only writes BOOT" ;;
+	case $(printf '%s' "$target" | tr '[:lower:]' '[:upper:]') in
+	BOOT) ;;
+	*) die "refusing to write '$target': scion flash writes BOOT only (write-root writes USERDATA)" ;;
 	esac
 	[ -f "$img" ] || die "$img: no such file"
-	dev=$(find_part BOOT) || die "BOOT partition not found"
-	pn=$(partname "$dev")
-	[ "$pn" = BOOT ] || die "$dev is '$pn', not BOOT; refusing"
-	size=$(wc -c < "$img" | tr -d ' ')
-	[ "$size" -gt 0 ] || die "$img is empty"
-	psize=$(blockdev --getsize64 "$dev" 2>/dev/null) || die "cannot read the size of $dev"
-	[ "$size" -le "$psize" ] || die "$img is $size bytes, BOOT is $psize"
 	magic=$(head -c 8 "$img")
 	if [ "$magic" != "ANDROID!" ] && [ "${SCION_FORCE:-0}" != 1 ]; then
 		die "$img is not an Android boot image (no ANDROID! magic); SCION_FORCE=1 to write it anyway"
 	fi
-	want=$(sha256sum "$img" | awk '{print $1}')
-	say "writing $img ($size bytes, sha256 $want) to $dev (BOOT, $psize bytes)"
-	dd if="$img" of="$dev" bs=4096 conv=fsync 2>/dev/null || die "dd failed"
-	sync
-	echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
-	got=$(head -c "$size" "$dev" | sha256sum | awk '{print $1}')
-	if [ "$got" = "$want" ]; then
-		say "read-back OK: sha256 $got"
+	write_file "$img" BOOT
+}
+
+# write-root IMG --yes [--from N] [--need-sidecar]: a raw volume image (iOS 27's
+# root, HakiOS' var) -> USERDATA from its first byte, in SCION_CHUNK_MB pieces,
+# each read back and compared. --from N starts at piece N (after a stop).
+cmd_write_root() {
+	img=""; yes=0; from=0; need=""
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--yes) yes=1 ;;
+		--from) shift; from=${1:-0} ;;
+		--need-sidecar) need=need ;;
+		-*) die "unknown option $1" ;;
+		*) img=$1 ;;
+		esac
+		shift
+	done
+	[ -n "$img" ] || die "usage: scion write-root IMG --yes [--from N]"
+	[ -f "$img" ] || die "$img: no such file"
+	case $from in ''|*[!0-9]*) die "--from takes a piece number" ;; esac
+	dev=$(writable_dev USERDATA) || exit 1
+	size=$(fsize "$img")
+	ps=$(psize "$dev") || die "cannot read the size of $dev"
+	big_le 1 "$size" || die "$img is empty"
+	big_le "$size" "$ps" || die "$img is $(human "$size"), USERDATA is $(human "$ps"): it does not fit"
+	[ "$(big_mod "$size" 4096)" = 0 ] || die "$img is $size bytes, not a whole number of 4096-byte blocks: not a volume image"
+	[ $yes -eq 1 ] || die "this ERASES USERDATA (Android's data, or the iOS root now on it): run again with --yes"
+	userdata_unused
+	chunk=$((SCION_CHUNK_MB * 1048576))
+	n=$(big_div_up "$size" "$chunk")
+	if [ -f "$img.sha256" ] || [ -n "$need" ]; then
+		say "checking $img against ${img##*/}.sha256 (reads the whole image once)"
+		sidecar_check "$img" "$(sha < "$img")" "$need"
+	else
+		say "no ${img##*/}.sha256 beside the image: each piece is still read back and compared"
+	fi
+	lock_take "write USERDATA from $img"
+	say "writing $img ($(human "$size"), $n pieces of $SCION_CHUNK_MB MiB) to $dev (USERDATA, $(human "$ps"))"
+	log_action "write-root start dev=$dev from=$img size=$size pieces=$n first=$from"
+	i=$from
+	while [ "$i" -lt "$n" ]; do
+		skip=$((i * SCION_CHUNK_MB))
+		a=$(dd if="$img" bs=1048576 skip=$skip count="$SCION_CHUNK_MB" 2>/dev/null | sha)
+		dd if="$img" of="$dev" bs=1048576 skip=$skip seek=$skip count="$SCION_CHUNK_MB" conv=fsync,notrunc 2>/dev/null ||
+			die "piece $i: dd failed (go on later with: scion write-root $img --yes --from $i)"
+		flush "$dev"
+		len=$(awk -v s="$size" -v o="$i" -v c="$chunk" 'BEGIN { r = s - o * c; if (r > c) r = c; printf "%.0f", r }')
+		b=$(dd if="$dev" bs=1048576 skip=$skip count="$SCION_CHUNK_MB" 2>/dev/null | head -c "$len" | sha)
+		if [ "$a" != "$b" ]; then
+			log_action "write-root MISMATCH piece=$i"
+			die "piece $i read back differs ($a / $b): stop. Do not boot iOS; run again with --from $i"
+		fi
+		i=$((i + 1))
+		if [ $((i % 16)) -eq 0 ] || [ "$i" -eq "$n" ]; then say "$i of $n pieces written and read back"; fi
+	done
+	log_action "write-root ok pieces=$n"
+	say "USERDATA holds $img: every piece read back and matched"
+	lock_drop
+}
+
+cmd_restore_root() {
+	cmd_write_root "$@" --need-sidecar
+}
+
+# be32 DEV OFFSET, le32/le64 DEV OFFSET: integers from a device's header.
+be32() { od -An -tu1 -j "$2" -N 4 "$1" | awk '{ v = 0; for (i = 1; i <= NF; i++) v = v * 256 + $i; printf "%.0f", v }'; }
+leN() { od -An -tu1 -j "$2" -N "$3" "$1" | awk '{ v = 0; for (i = NF; i >= 1; i--) v = v * 256 + $i; printf "%.0f", v }'; }
+
+# volume_bytes DEV: how much of DEV the HFS Plus volume or APFS container on
+# it covers, from its own header.
+volume_bytes() {
+	case $(fs_kind "$1") in
+	hfsplus) awk -v b="$(be32 "$1" 1064)" -v n="$(be32 "$1" 1068)" 'BEGIN { printf "%.0f", b * n }' ;;
+	apfs) awk -v b="$(leN "$1" 36 4)" -v n="$(leN "$1" 40 8)" 'BEGIN { printf "%.0f", b * n }' ;;
+	*) return 1 ;;
+	esac
+}
+
+# storage_dir [DIR] [BYTES]: DIR, or the first storage in SCION_STORAGE that is
+# mounted, writable and has BYTES free; with scion/ made in it.
+storage_dir() {
+	if [ -n "${1:-}" ]; then mkdir -p "$1" || die "cannot create $1"; echo "$1"; return 0; fi
+	for s in $SCION_STORAGE; do
+		[ -d "$s" ] || continue
+		# Only a mounted storage (or, for the tests, a plain directory).
+		if [ "${SCION_STORAGE_ANYDIR:-0}" != 1 ] && ! grep -q " $s " /proc/mounts 2>/dev/null; then continue; fi
+		mkdir -p "$s/scion" 2>/dev/null || continue
+		if [ -n "${2:-}" ]; then
+			free=$(df -k "$s/scion" 2>/dev/null | awk 'NR > 1 { f = $(NF - 2) } END { printf "%.0f", f * 1024 }')
+			big_le "$2" "${free:-0}" || { say "$s: $(human "${free:-0}") free, $(human "$2") needed"; continue; }
+		fi
+		echo "$s/scion"
+		return 0
+	done
+	die "no storage for it: insert an SD card or a USB drive (FAT32 holds files up to 4 GiB; exFAT for larger), or give a directory"
+}
+
+# fat_ok DIR BYTES: refuse a file of 4 GiB or more on FAT32.
+fat_ok() {
+	fs=$(df -T "$1" 2>/dev/null | awk 'NR > 1 { print $2 }')
+	[ -z "$fs" ] && fs=$(awk -v d="$1/" 'index(d, $2 "/") == 1 && length($2) >= l { l = length($2); t = $3 } END { print t }' /proc/mounts 2>/dev/null)
+	case $fs in
+	vfat|msdos|fat*) big_le "$2" 4294967295 || die "$1 is FAT32, which holds files up to 4 GiB; this one is $(human "$2"): use exFAT" ;;
+	esac
+	return 0
+}
+
+# copy_part NAME DIR/FILE [BYTES]: partition NAME (its first BYTES, default all)
+# -> FILE, read only, with FILE.sha256; the copy's hash must equal the
+# partition's (read again).
+copy_part() {
+	dev=$(find_part "$1") || die "$1 partition not found"
+	len=${3:-$(psize "$dev")}
+	fat_ok "$(dirname "$2")" "$len"
+	say "copying $1 ($dev, $(human "$len")) to $2"
+	mb=$(awk -v l="$len" 'BEGIN { printf "%d", l / 1048576 }')
+	tail=$(big_mod "$len" 1048576)
+	{
+		dd if="$dev" bs=1048576 count="$mb" 2>/dev/null
+		if [ "$tail" != 0 ]; then dd if="$dev" bs=1048576 skip="$mb" count=1 2>/dev/null | head -c "$tail"; fi
+	} > "$2" || die "copy of $1 failed"
+	got=$(sha < "$2")
+	want=$(head -c "$len" "$dev" | sha)
+	[ "$got" = "$want" ] || die "the copy of $1 differs from $1 ($got / $want)"
+	printf '%s  %s\n' "$got" "${2##*/}" > "$2.sha256"
+	big_eq "$(fsize "$2")" "$len" || die "the copy is $(fsize "$2") bytes, not $len"
+	say "$2: $len bytes, sha256 $got (in ${2##*/}.sha256)"
+	log_action "copy $1 -> $2 sha256=$got"
+}
+
+cmd_backup_root() {
+	whole=0; dir=""
+	for a in "$@"; do case $a in --whole) whole=1 ;; *) dir=$a ;; esac; done
+	dev=$(find_part USERDATA) || die "USERDATA partition not found"
+	if len=$(volume_bytes "$dev") && [ "$whole" = 0 ]; then
+		say "USERDATA holds $(fs_kind "$dev") covering $(human "$len") of $(human "$(psize "$dev")")"
+	elif [ "$whole" = 1 ]; then
+		len=$(psize "$dev")
+	else
+		die "USERDATA holds neither HFS Plus nor APFS (no iOS root or var on it): nothing to back up (--whole copies the whole partition)"
+	fi
+	big_le 1 "$len" || die "USERDATA's volume header gives no size"
+	sd_dir=$(storage_dir "$dir" "$len") || exit 1
+	copy_part USERDATA "$sd_dir/scion-root-$(stamp).img" "$len"
+	say "restore it with: scion restore-root FILE --yes (or Scion > Back up > Restore)"
+}
+
+cmd_backup_boot() {
+	sd_dir=$(storage_dir "${1:-}" 268435456) || exit 1
+	copy_part BOOT "$sd_dir/boot-$(stamp).img"
+}
+
+cmd_copy_efs() {
+	sd_dir=$(storage_dir "${1:-}" 268435456) || exit 1
+	t=$(stamp)
+	for p in EFS SEC_EFS CPEFS; do
+		find_part "$p" >/dev/null || { say "$p: not on this phone, skipped"; continue; }
+		copy_part "$p" "$sd_dir/$p-$t.img"
+	done
+	say "read only: EFS was not mounted and nothing was written to it. Keep these files private: they hold the phone's identity"
+}
+
+# ---- the boot library and switching ----------------------------------------
+lib_dir() {
+	if [ -n "${SCION_LIB:-}" ]; then echo "$SCION_LIB"; return 0; fi
+	for s in $SCION_STORAGE; do
+		[ -d "$s/scion" ] && { echo "$s/scion"; return 0; }
+	done
+	return 1
+}
+
+os_name() {
+	case $1 in
+	android) echo "Android" ;;
+	ios165) echo "iOS 16.5 (HakiOS)" ;;
+	ios27) echo "iOS 27" ;;
+	*) return 1 ;;
+	esac
+}
+
+# hfs_has DEV PATH: the HFS Plus volume on DEV has PATH (hfsdump, no mount).
+hfs_has() { command -v hfsdump >/dev/null 2>&1 && hfsdump "$1" stat "$2" >/dev/null 2>&1; }
+
+# userdata_holds: what USERDATA holds, for switch: ios27-root, hakios-var,
+# android (ext4/f2fs), hfsplus, apfs or unknown.
+userdata_holds() {
+	dev=$(find_part USERDATA) || { echo none; return 0; }
+	case $(fs_kind "$dev") in
+	hfsplus)
+		if hfs_has "$dev" /System/Library/CoreServices/SystemVersion.plist; then echo ios27-root
+		elif hfs_has "$dev" /mobile; then echo hakios-var
+		else echo hfsplus; fi ;;
+	apfs) echo apfs ;;
+	*)
+		if [ "$(od -An -tx1 -j 1080 -N 2 "$dev" | tr -d ' \n')" = 53ef ]; then echo android
+		elif [ "$(od -An -tx1 -j 1024 -N 4 "$dev" | tr -d ' \n')" = 1020f5f2 ]; then echo android
+		else echo unknown; fi ;;
+	esac
+}
+
+cmd_bootlib() {
+	if [ "${1:-}" = save ]; then
+		os=${2:-}
+		os_name "$os" >/dev/null || die "usage: scion bootlib save android|ios165|ios27"
+		sd_dir=$(lib_dir) || sd_dir=$(storage_dir "" 268435456) || exit 1
+		copy_part BOOT "$sd_dir/boot-$os.tmp"
+		mv "$sd_dir/boot-$os.tmp" "$sd_dir/boot-$os.img" && sed "s/boot-$os.tmp/boot-$os.img/" "$sd_dir/boot-$os.tmp.sha256" > "$sd_dir/boot-$os.img.sha256" && rm -f "$sd_dir/boot-$os.tmp.sha256"
+		say "BOOT saved as $(os_name "$os"): $sd_dir/boot-$os.img"
 		return 0
 	fi
-	die "read-back MISMATCH: wrote $want, read $got. Do not reboot into BOOT; flash again."
+	sd_dir=$(lib_dir) || die "no boot library: put boot-android.img, boot-ios165.img, boot-ios27.img (each with its .sha256) in scion/ on the SD card or USB drive"
+	say "boot library: $sd_dir"
+	for os in android ios165 ios27; do
+		f=$sd_dir/boot-$os.img
+		if [ -f "$f" ]; then
+			if [ -f "$f.sha256" ]; then st="with .sha256"; else st="NO .sha256: switch will refuse it"; fi
+			say "  $(os_name "$os"): boot-$os.img, $(fsize "$f") bytes, $st"
+		else
+			say "  $(os_name "$os"): none"
+		fi
+	done
+}
+
+cmd_switch() {
+	os=${1:-}; anyway=0
+	[ "${2:-}" = --anyway ] && anyway=1
+	nm=$(os_name "$os") || die "usage: scion switch android|ios165|ios27 [--anyway]"
+	sd_dir=$(lib_dir) || die "no boot library (scion/ on the SD card or USB drive)"
+	img=$sd_dir/boot-$os.img
+	[ -f "$img" ] || die "no $img: save one first (scion bootlib save $os, with that system's boot image in BOOT) or copy it there with its .sha256"
+	holds=$(userdata_holds)
+	say "USERDATA holds: $holds"
+	why=""
+	case $os in
+	ios27) [ "$holds" = ios27-root ] || why="iOS 27 starts from a root on USERDATA, and USERDATA holds $holds (install the root first)" ;;
+	ios165)
+		sk=$(fs_kind "$(find_part SYSTEM)" 2>/dev/null)
+		case $sk in hfsplus|apfs) ;; *) why="iOS 16.5 starts from SYSTEM, which holds ${sk:-nothing} (install the 16.5 zip first)" ;; esac ;;
+	android) [ "$holds" = android ] || why="Android keeps its data on USERDATA, and USERDATA holds $holds: Android would start without its data and may offer to wipe" ;;
+	esac
+	if [ -n "$why" ]; then
+		[ $anyway -eq 1 ] || die "not switching to $nm: $why. (--anyway switches regardless)"
+		say "switching anyway: $why"
+	fi
+	say "switching to $nm: $img -> BOOT (BOOT is the only partition written)"
+	write_file "$img" BOOT need
+	log_action "switch $os"
+	say "next boot: $nm"
+}
+
+# ---- looking ----------------------------------------------------------------
+prop() { getprop "$1" 2>/dev/null; }
+
+cmd_facts() {
+	say "model: $(prop ro.product.model) ($(prop ro.product.device)), $(prop ro.product.manufacturer)"
+	say "boot loader: $(prop ro.boot.bootloader)"
+	say "recovery: Scion recovery, scion $SCION_VERSION, TWRP $(prop ro.twrp.version)"
+	say "kernel: $(cut -d' ' -f1-3 < "$SCION_PROC/version" 2>/dev/null)"
+	b=/sys/class/power_supply/battery
+	if [ -d "$b" ]; then
+		t=$(cat "$b/temp" 2>/dev/null)
+		v=$(cat "$b/voltage_now" 2>/dev/null)
+		say "battery: $(cat "$b/capacity" 2>/dev/null)% $(cat "$b/status" 2>/dev/null), ${t:+$((t / 10)).$((t % 10)) C, }${v:+$((v / 1000)) mV, }health $(cat "$b/health" 2>/dev/null)"
+	fi
+	say "memory: $(awk '/MemTotal/ { printf "%.1f GiB", $2 / 1048576 }' "$SCION_PROC/meminfo" 2>/dev/null)"
+	for p in BOOT RECOVERY SYSTEM VENDOR CACHE USERDATA; do
+		if d=$(find_part "$p"); then
+			say "$p: $(human "$(psize "$d" 2>/dev/null || echo 0)"), $(fs_kind "$d")"
+		fi
+	done
+	say "USERDATA holds: $(userdata_holds)"
+	if d=$(lib_dir); then say "boot library: $d"; else say "boot library: none"; fi
+	for s in $SCION_STORAGE; do
+		grep -q " $s " /proc/mounts 2>/dev/null && say "storage $s: $(df -h "$s" 2>/dev/null | awk 'NR > 1 { print $(NF - 2) " free of " $(NF - 4) }')"
+	done
+	return 0
+}
+
+hfs_header() {
+	d=$1
+	at=$(be32 "$d" 1028)
+	say "  HFS Plus: block size $(be32 "$d" 1064), blocks $(be32 "$d" 1068), free $(be32 "$d" 1072)"
+	j=no; c=no
+	[ $(((at >> 13) & 1)) -eq 1 ] && j=yes
+	[ $(((at >> 8) & 1)) -eq 1 ] && c=yes
+	say "  journaled: $j; unmounted cleanly: $c"
+	command -v hfsdump >/dev/null 2>&1 && hfsdump "$d" 2>/dev/null | head -20
+	return 0
+}
+
+cmd_inspect() {
+	for p in USERDATA SYSTEM; do
+		d=$(find_part "$p") || { say "$p: not found"; continue; }
+		k=$(fs_kind "$d")
+		say "$p ($d, $(human "$(psize "$d" 2>/dev/null || echo 0)")): $k"
+		case $k in
+		hfsplus) hfs_header "$d" ;;
+		apfs) command -v apfsutil >/dev/null 2>&1 && apfsutil "$d" 2>&1 | head -40 ;;
+		esac
+	done
+	say "USERDATA holds: $(userdata_holds)"
+	return 0
+}
+
+cmd_fsck() {
+	any=0
+	for p in USERDATA SYSTEM; do
+		d=$(find_part "$p") || continue
+		case $(fs_kind "$d") in
+		apfs)
+			any=1
+			say "$p: apfsck (read only: it reports, it does not repair)"
+			if apfsck "$d"; then say "$p: apfsck found no problem"; else say "$p: apfsck reported problems (above)"; fi
+			;;
+		hfsplus)
+			any=1
+			say "$p: HFS Plus. No HFS Plus checker is in this recovery (fsck_hfs is Apple's); the header:"
+			hfs_header "$d"
+			;;
+		esac
+	done
+	[ $any -eq 1 ] || say "neither USERDATA nor SYSTEM holds HFS Plus or APFS"
+	return 0
+}
+
+cmd_policy() {
+	say "policy: $SCION_POLICY"
+	say "Scion may write: $(policy_names write | tr '\n' ' ')"
+	say "never written: $(policy_names never | tr '\n' ' ')"
+	for n in $(policy_names write); do
+		if d=$(writable_dev "$n" 2>/dev/null); then say "  $n -> $d ($(readlink -f "$d"))"; else say "  $n: refused here ($(writable_dev "$n" 2>&1 >/dev/null | sed 's/^scion: error: //'))"; fi
+	done
+	return 0
+}
+
+cmd_check() {
+	[ -n "${1:-}" ] || die "usage: scion check PART"
+	d=$(writable_dev "$1") || exit 1
+	say "$1 may be written: $d"
 }
 
 cmd_info() {
@@ -398,17 +890,48 @@ cmd_info() {
 }
 
 usage() {
-	sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+# The last line of every command says how it ended (TWRP's terminalcommand,
+# which runs these for the GUI, does not report exit codes), and the write
+# lock is released however it ended.
+finish() {
+	rc=$?
+	lock_drop
+	if [ "${QUIET_RESULT:-0}" != 1 ]; then
+		if [ "$rc" -eq 0 ]; then say "RESULT: OK"; else say "RESULT: FAILED (exit $rc)"; fi
+	fi
+	exit "$rc"
 }
 
 cmd=${1:-help}
 [ $# -gt 0 ] && shift
+case $cmd in
+help|-h|--help|version) QUIET_RESULT=1 ;;
+esac
+trap finish EXIT
+trap 'exit 130' INT TERM HUP
+# A reader that goes away (the GUI, a pipe) must not stop a write half way.
+trap '' PIPE
 case $cmd in
 logs) cmd_logs "$@" ;;
 mountvar) cmd_mountvar "$@" ;;
 umountvar) cmd_umountvar ;;
 pull) cmd_pull "$@" ;;
 flash) cmd_flash "$@" ;;
+write-root) cmd_write_root "$@" ;;
+restore-root) cmd_restore_root "$@" ;;
+backup-root) cmd_backup_root "$@" ;;
+backup-boot) cmd_backup_boot "$@" ;;
+copy-efs) cmd_copy_efs "$@" ;;
+switch) cmd_switch "$@" ;;
+bootlib) cmd_bootlib "$@" ;;
+facts) cmd_facts ;;
+inspect) cmd_inspect ;;
+fsck) cmd_fsck ;;
+policy) cmd_policy ;;
+check) cmd_check "$@" ;;
 info) cmd_info ;;
 version) echo "scion $SCION_VERSION" ;;
 help|-h|--help) usage ;;

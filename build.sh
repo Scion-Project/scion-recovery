@@ -96,6 +96,15 @@ done < <(cd theme && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
 
 "$MAGISKBOOT" cpio ramdisk.cpio "${theme_cmds[@]}"
 
+# 4c. The write policy, and TWRP's fstab made to agree with it (scripts/fstab.py:
+#     EFS and RADIO out of TWRP's reach, only BOOT flashable by Install Image).
+(cd stock/rd && cpio -id --quiet etc/recovery.fstab < ../ramdisk.cpio)
+python3 "$HERE/scripts/fstab.py" apply "$O/etc/scion-partitions.conf" stock/rd/etc/recovery.fstab recovery.fstab
+python3 "$HERE/scripts/fstab.py" check "$O/etc/scion-partitions.conf" recovery.fstab
+"$MAGISKBOOT" cpio ramdisk.cpio \
+	"add 0644 etc/recovery.fstab recovery.fstab" \
+	"add 0644 etc/scion-partitions.conf $O/etc/scion-partitions.conf"
+
 "$MAGISKBOOT" cpio ramdisk.cpio \
 	"add 0750 init.recovery.samsungexynos9810.rc $O/init.recovery.samsungexynos9810.rc" \
 	"add 0755 sbin/scion $O/sbin/scion" \
