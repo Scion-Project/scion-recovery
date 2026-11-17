@@ -35,8 +35,8 @@ then switch to the next combo as soon as the screen goes black):
 TWRP's GUI does the same: Install > Install Image > pick scion-recovery.img > Recovery.
 (`/dev/block/by-name/RECOVERY` may also exist; the platform path above always does in TWRP.)
 
-Once in Scion recovery: `adb shell scion info`, and the previous run's logs are already in
-`/tmp/scion-boot` (`adb pull /tmp/scion-boot`).
+Once in Scion recovery: `adb shell scion facts`, and the previous run's logs are already in
+`/tmp/scion-boot` (`adb pull /tmp/scion-boot`). What to try next, in order: TESTING.md.
 
 ## B. Flash Scion recovery from a Mac with heimdall (Download mode)
 
@@ -85,5 +85,6 @@ B or C.
 
 - Writing RECOVERY can never brick the phone: Download mode is in the bootloader (SBOOT),
   which none of this touches.
-- Don't flash anything to EFS, PARAM, BOTA*, SBOOT/CM/UP_PARAM. `scion flash` refuses every
-  partition except BOOT, and checks the kernel's own partition name before writing.
+- Don't flash anything to EFS, PARAM, BOTA*, SBOOT/CM/UP_PARAM. Scion's tools (`scion`, the GUI's Scion
+  pages, `fastboot`) write only BOOT and USERDATA (`/etc/scion-partitions.conf`) and check the kernel's own
+  partition name before writing; EFS and the modem are out of TWRP's fstab too.
