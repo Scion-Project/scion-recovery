@@ -37,7 +37,7 @@ for p in 1:BOOT 2:RECOVERY 3:EFS 4:SYSTEM 5:USERDATA; do ln -sf "/dev/block/${L#
 grep -h PARTNAME /sys/class/block/${L##*/}p*/uevent
 zcat /t/t.raw.gz | dd of=/tmp/byname/USERDATA bs=1M conv=fsync 2>/dev/null
 
-export SCION_BLOCKDIRS=/tmp/byname SCION_MNT=/tmp/scion SCION_LOGDIR=/tmp/scion-logs
+export SCION_BLOCKDIRS=/tmp/byname SCION_MNT=/tmp/scion SCION_LOGDIR=/tmp/scion-logs SCION_POLICY=/r/overlay/etc/scion-partitions.conf
 S="mksh /r/overlay/sbin/scion"
 
 echo "== info"; $S info
@@ -140,8 +140,8 @@ T="non-log regions skipped"; t sh -c '! grep -q modem /tmp/scion-logs/*/reserved
 T="boot mode writes /tmp/scion-boot"; t sh -c "mksh /r/overlay/sbin/scion logs --boot /tmp/scion-boot >/dev/null && [ -d /tmp/scion-boot ]"
 T="help"; t sh -c "$S help | grep -q 'scion flash IMG'"
 T="unknown command exits 2"; t sh -c "$S frobnicate >/dev/null 2>&1; [ \$? -eq 2 ]"
-T="also runs under busybox ash"; t sh -c "sh /r/overlay/sbin/scion version | grep -q 'scion 2'"
-T="help lists through the read-only line"; t sh -c "$S help | grep -q 'Everything is read-only'"
+T="also runs under busybox ash"; t sh -c "sh /r/overlay/sbin/scion version | grep -q 'scion 3'"
+T="help lists through the RESULT line"; t sh -c "$S help | grep -q 'RESULT: OK'"
 
 losetup -d "$L"
 echo "passed $pass, failed $failn"

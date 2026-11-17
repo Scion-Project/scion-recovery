@@ -7,9 +7,11 @@ templates) includes portrait.xml (every page), splash.xml is the splash screen,
 images/ the PNGs. This script reads the stock files (out of the stock image's
 ramdisk, never committed here) and writes the files that change:
 
-  ui.xml        colours, the header, theme details, includes scion.xml
+  ui.xml        colours, the header, theme details, includes scion.xml,
+                and holds scion.xml's variables
   portrait.xml  TeamWin's home page renamed twrp_home (Scion's home, in
-                scion.xml, is main2 now); the rest unchanged
+                scion.xml, is main2 now); Install Image shown only with
+                Scion's advanced switch on; the rest unchanged
   splash.xml    replaced by theme/splash.xml
   scion.xml     theme/scion.xml: Scion's home page and pages
   images/       logo.png and splashlogo.png rendered from theme/art/scion-logo.svg;
@@ -101,7 +103,16 @@ def edit_ui(text):
 
 
 def edit_portrait(text):
-    return once(text, '<page name="main2">', '<page name="twrp_home">', "portrait.xml main2")
+    text = once(text, '<page name="main2">', '<page name="twrp_home">', "portrait.xml main2")
+    # TWRP's Install Image (flash any image partition): only with Scion's
+    # advanced switch on (Scion settings). fstab.py leaves BOOT the only
+    # partition it lists.
+    old = ('\t\t\t<button style="main_button_half_height">\n'
+           '\t\t\t\t<condition var1="tw_selectimage" var2="0"/>\n'
+           '\t\t\t\t<placement x="%center_x%" y="%row21a_y%"/>\n'
+           '\t\t\t\t<text>{@install_image_btn=Install Image}</text>\n')
+    new = old.replace('var2="0"/>\n', 'var2="0"/>\n\t\t\t\t<condition var1="tw_scion_advanced" var2="1"/>\n', 1)
+    return once(text, old, new, "portrait.xml Install Image button")
 
 
 def recolour(src, dst, name):
@@ -146,14 +157,26 @@ def render_logo(theme_dir, out_images):
     os.remove(tmp)
 
 
+def split_variables(scion):
+    """scion.xml's <variables> block, moved into ui.xml's: TWRP certainly reads
+    variables there, and the include then carries pages only."""
+    a = scion.index("\t<variables>\n")
+    b = scion.index("\t</variables>\n") + len("\t</variables>\n")
+    block = scion[a:b]
+    lines = [x for x in block.splitlines()[1:-1] if x.strip()]
+    return scion[:a] + scion[b:].lstrip("\n"), "".join("\t" + x.strip().join(["\t", "\n"]) for x in lines)
+
+
 def apply(stock, out, theme_dir):
     os.makedirs(os.path.join(out, "images"), exist_ok=True)
-    ui = open(os.path.join(stock, "ui.xml")).read()
-    open(os.path.join(out, "ui.xml"), "w").write(edit_ui(ui))
+    scion, scion_vars = split_variables(open(os.path.join(theme_dir, "scion.xml")).read())
+    ui = edit_ui(open(os.path.join(stock, "ui.xml")).read())
+    ui = once(ui, "\t</variables>", scion_vars + "\t</variables>", "ui.xml variables end (scion.xml's)")
+    open(os.path.join(out, "ui.xml"), "w").write(ui)
     pt = open(os.path.join(stock, "portrait.xml")).read()
     open(os.path.join(out, "portrait.xml"), "w").write(edit_portrait(pt))
     shutil.copy(os.path.join(theme_dir, "splash.xml"), os.path.join(out, "splash.xml"))
-    shutil.copy(os.path.join(theme_dir, "scion.xml"), os.path.join(out, "scion.xml"))
+    open(os.path.join(out, "scion.xml"), "w").write(scion)
     render_logo(theme_dir, os.path.join(out, "images"))
     for f in sorted(os.listdir(os.path.join(stock, "images"))):
         if f.endswith(".png") and f not in REPLACED_IMAGES:

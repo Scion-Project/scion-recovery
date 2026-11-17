@@ -47,8 +47,8 @@ case $fmt in *lzma*) ok "new ramdisk is LZMA (stock: LZMA)";; *) bad "new ramdis
 python3 "$HERE/scripts/cpiodiff.py" stock/ramdisk.cpio new/ramdisk.cpio --allow-added \
 	init.recovery.samsungexynos9810.rc sbin/scion sbin/scion-bootlogs sbin/apfs-fuse sbin/apfs-extract \
 	sbin/apfsutil sbin/mkapfs sbin/apfsck sbin/apfs-label sbin/apfs-snap sbin/fsck.apfs sbin/mkfs.apfs \
-	sbin/hfsfuse sbin/hfsdump scion scion/apfs scion/hfs twres/scion.xml \
-	--allow-changed twres/ui.xml twres/portrait.xml twres/splash.xml twres/images \
+	sbin/hfsfuse sbin/hfsdump scion scion/apfs scion/hfs twres/scion.xml etc/scion-partitions.conf \
+	--allow-changed twres/ui.xml twres/portrait.xml twres/splash.xml twres/images etc/recovery.fstab \
 	| tee cpiodiff.txt | grep -vE "^(ADDED|REPLACED)" || true
 grep -E "^(ADDED|REPLACED)" cpiodiff.txt
 if tail -1 cpiodiff.txt | grep -q "problems 0"; then ok "stock entries unchanged except the theme's twres files; additions only"; else bad "cpio diff"; fi
@@ -57,12 +57,16 @@ rm -rf rdx && mkdir rdx && (cd rdx && cpio -id --quiet < ../new/ramdisk.cpio 2>/
 rm -rf theme-check && mkdir theme-check
 python3 "$HERE/scripts/theme.py" apply stock/rd/twres theme-check "$HERE/theme" >/dev/null
 if diff -r theme-check rdx/twres | grep -v '^Only in rdx/twres' | grep -q .; then bad "twres differs from a fresh theme.py run"; else ok "twres theme files are exactly theme.py's output"; fi
-grep -E "^REPLACED" cpiodiff.txt | awk '{print $2}' | sed 's|^twres/||' | while read -r f; do [ -f "theme-check/$f" ] || echo "replaced but not made by theme.py: $f"; done | grep . && bad "replaced files" || true
+grep -E "^REPLACED +twres/" cpiodiff.txt | awk '{print $2}' | sed 's|^twres/||' | while read -r f; do [ -f "theme-check/$f" ] || echo "replaced but not made by theme.py: $f"; done | grep . && bad "replaced files" || true
 if python3 "$HERE/scripts/theme.py" lint rdx/twres; then ok "theme lint (pages, styles, templates, resources, variables)"; else bad "theme lint"; fi
 # Stock's own integrity list must still check out on the new ramdisk for every
-# file but the replaced theme files (TWRP uses it only for its A/B "repack
+# file but the replaced theme files and fstab (TWRP uses it only for its A/B "repack
 # ramdisk" feature, which the S9 does not have).
-if (cd rdx && grep -vE '  \./twres/(ui\.xml|portrait\.xml|splash\.xml|images/)' ramdisk-files.sha256sum | sha256sum -c --quiet -); then ok "TWRP's ramdisk-files.sha256sum verifies except for the replaced theme files"; else bad "ramdisk-files.sha256sum"; fi
+# The write policy: TWRP's fstab agrees with it, and is exactly fstab.py's output.
+if python3 "$HERE/scripts/fstab.py" check rdx/etc/scion-partitions.conf rdx/etc/recovery.fstab; then ok "TWRP's fstab agrees with the write policy (no never-list partition, only write-list images flashable)"; else bad "fstab vs policy"; fi
+python3 "$HERE/scripts/fstab.py" apply "$HERE/overlay/etc/scion-partitions.conf" stock/rd/etc/recovery.fstab fstab-check
+if cmp -s fstab-check rdx/etc/recovery.fstab && cmp -s "$HERE/overlay/etc/scion-partitions.conf" rdx/etc/scion-partitions.conf; then ok "fstab and policy in the image are fstab.py's output and the committed policy"; else bad "fstab/policy differ"; fi
+if (cd rdx && grep -vE '  \./(twres/(ui\.xml|portrait\.xml|splash\.xml|images/)|etc/recovery\.fstab)' ramdisk-files.sha256sum | sha256sum -c --quiet -); then ok "TWRP's ramdisk-files.sha256sum verifies except for the replaced theme files and fstab"; else bad "ramdisk-files.sha256sum"; fi
 
 echo "== 4. size"
 size=$(stat -c %s "$NEW")

@@ -13,7 +13,8 @@
      rather than TWRP's "Successful"/"Failed".
 
      Coordinates are in TWRP's 1080x1920 design space; TWRP scales them to the
-     S9's 1440x2960 panel. NOT run on a phone: checked by scripts/theme.py lint
+     S9's 1440x2960 panel. The <variables> block below is moved into ui.xml's
+     by theme.py. NOT run on a phone: checked by scripts/theme.py lint
      (well-formed, every page, style, template, resource and variable it names
      exists) only. -->
 <recovery>
@@ -30,7 +31,12 @@
 		<variable name="scion_list_y" value="300"/>
 		<variable name="scion_list_h" value="1000"/>
 		<variable name="scion_note_y" value="1340"/>
+		<variable name="scion_note1_y" value="1340"/>
+		<variable name="scion_note2_y" value="1390"/>
+		<variable name="scion_list2_y" value="420"/>
+		<variable name="scion_list2_h" value="880"/>
 		<variable name="tw_scion_advanced" value="0"/>
+		<variable name="tw_scion_pick" value="write"/>
 	</variables>
 
 	<pages>
@@ -54,31 +60,49 @@
 
 			<button style="main_button_half_height">
 				<placement x="%indent%" y="%scion_btn_row1_y%"/>
-				<text>Boot image</text>
-				<action function="page">scion_boot</action>
+				<text>Install iOS</text>
+				<action function="page">scion_install</action>
 			</button>
 
 			<button style="main_button_half_height">
 				<placement x="%center_x%" y="%scion_btn_row1_y%"/>
+				<text>Switch system</text>
+				<action function="page">scion_switch</action>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%scion_btn_row2_y%"/>
+				<text>Back up</text>
+				<action function="page">scion_backup</action>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%center_x%" y="%scion_btn_row2_y%"/>
 				<text>Save logs</text>
 				<action function="page">scion_logs</action>
 			</button>
 
 			<button style="main_button_half_height">
-				<placement x="%indent%" y="%scion_btn_row2_y%"/>
+				<placement x="%indent%" y="%scion_btn_row3_y%"/>
 				<text>iOS disks</text>
 				<action function="page">scion_disks</action>
 			</button>
 
 			<button style="main_button_half_height">
-				<placement x="%center_x%" y="%scion_btn_row2_y%"/>
+				<placement x="%center_x%" y="%scion_btn_row3_y%"/>
 				<text>Phone info</text>
 				<actions>
 					<action function="set">tw_back=main2</action>
 					<action function="set">tw_action_text1=Phone info</action>
-					<action function="set">tw_action_param=/sbin/scion info</action>
+					<action function="set">tw_action_param=/sbin/scion facts</action>
 					<action function="page">scion_go</action>
 				</actions>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%center_x%" y="%scion_btn_row4_y%"/>
+				<text>Scion settings</text>
+				<action function="page">scion_settings</action>
 			</button>
 
 			<text style="text_m_accent">
@@ -362,6 +386,22 @@
 					</actions>
 				</listitem>
 
+				<listitem name="Inspect: what USERDATA and SYSTEM hold">
+					<actions>
+						<action function="set">tw_back=scion_disks</action>
+						<action function="set">tw_action_text1=Inspect</action>
+						<action function="set">tw_action_param=/sbin/scion inspect</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="Check (APFS: apfsck, read only)">
+					<actions>
+						<action function="set">tw_back=scion_disks</action>
+						<action function="set">tw_action_text1=Check</action>
+						<action function="set">tw_action_param=/sbin/scion fsck</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
 				<listitem name="Unmount">
 					<actions>
 						<action function="set">tw_back=scion_disks</action>
@@ -379,6 +419,91 @@
 
 			<action>
 				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+
+		<page name="scion_pick_root">
+			<template name="page"/>
+
+			<text style="text_l">
+				<condition var1="tw_scion_pick" var2="write"/>
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Install an iOS root</text>
+			</text>
+
+			<text style="text_l">
+				<condition var1="tw_scion_pick" var2="restore"/>
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Restore an iOS root</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Pick the .img: it goes to USERDATA</text>
+			</text>
+
+			<template name="sort_options"/>
+
+			<fileselector>
+				<placement x="%indent%" y="%row3_y%" w="%content_width%" h="%fileselector_install_height%"/>
+				<text>%tw_scion_root_location%</text>
+				<filter extn=".img" folders="1" files="1"/>
+				<path name="tw_scion_root_location" default="/external_sd"/>
+				<data name="tw_filename"/>
+				<selection name="tw_file"/>
+			</fileselector>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%row21a_y%"/>
+				<text>{@select_storage_btn=Select Storage}</text>
+				<actions>
+					<action function="set">tw_back=scion_pick_root</action>
+					<action function="overlay">select_storage</action>
+				</actions>
+			</button>
+
+			<action>
+				<conditions>
+					<condition var1="tw_scion_pick" var2="write"/>
+					<condition var1="tw_filename" op="modified"/>
+				</conditions>
+				<actions>
+					<action function="set">tw_back=scion_install</action>
+					<action function="set">tw_action_text1=Install iOS root</action>
+					<action function="set">tw_text1=%tw_file%</action>
+					<action function="set">tw_text2=ERASES USERDATA: Android's data or the iOS on it</action>
+					<action function="set">tw_text3=Every 64 MiB piece is read back and compared</action>
+					<action function="set">tw_slider_text=Swipe to erase and write USERDATA</action>
+					<action function="set">tw_action_param=/sbin/scion write-root "%tw_filename%" --yes</action>
+					<action function="page">scion_confirm</action>
+				</actions>
+			</action>
+
+			<action>
+				<conditions>
+					<condition var1="tw_scion_pick" var2="restore"/>
+					<condition var1="tw_filename" op="modified"/>
+				</conditions>
+				<actions>
+					<action function="set">tw_back=scion_backup</action>
+					<action function="set">tw_action_text1=Restore iOS root</action>
+					<action function="set">tw_text1=%tw_file%</action>
+					<action function="set">tw_text2=ERASES USERDATA; needs %tw_file%.sha256</action>
+					<action function="set">tw_text3=Every 64 MiB piece is read back and compared</action>
+					<action function="set">tw_slider_text=Swipe to restore USERDATA</action>
+					<action function="set">tw_action_param=/sbin/scion restore-root "%tw_filename%" --yes</action>
+					<action function="page">scion_confirm</action>
+				</actions>
+			</action>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+
+			<action>
+				<touch key="home"/>
 				<action function="page">main</action>
 			</action>
 		</page>
@@ -440,5 +565,284 @@
 				<action function="page">main</action>
 			</action>
 		</page>
+		<page name="scion_install">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Install iOS</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Writes USERDATA or BOOT, nothing else</text>
+			</text>
+
+			<listbox style="advanced_listbox">
+				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
+
+				<listitem name="iOS root image to USERDATA (from SD card or USB drive)">
+					<actions>
+						<action function="set">tw_scion_pick=write</action>
+						<action function="page">scion_pick_root</action>
+					</actions>
+				</listitem>
+				<listitem name="Boot image to BOOT">
+					<actions>
+						<action function="page">scion_boot</action>
+					</actions>
+				</listitem>
+				<listitem name="Installer zip (iOS 16.5): TWRP's Install">
+					<actions>
+						<action function="queueclear"></action>
+						<action function="set">tw_selectimage=0</action>
+						<action function="page">install</action>
+					</actions>
+				</listitem>
+				<listitem name="Installer zip from a computer: ADB sideload">
+					<actions>
+						<action function="page">sideload</action>
+					</actions>
+				</listitem>
+			</listbox>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note1_y%"/>
+				<text>A root image is too big for internal storage: it lives on USERDATA.</text>
+			</text>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note2_y%"/>
+				<text>Use exFAT on the SD card or USB drive (FAT32 stops at 4 GiB).</text>
+			</text>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+
+		<page name="scion_switch">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Switch system</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Chooses what BOOT starts</text>
+			</text>
+
+			<listbox style="advanced_listbox">
+				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
+
+				<listitem name="Start Android next">
+					<actions>
+						<action function="set">tw_back=scion_switch</action>
+						<action function="set">tw_action_text1=Switch to Android</action>
+						<action function="set">tw_text1=scion/boot-android.img goes to BOOT</action>
+						<action function="set">tw_text2=BOOT only; checked against its .sha256 first</action>
+						<action function="set">tw_text3=USERDATA is checked, not written</action>
+						<action function="set">tw_slider_text=Swipe to switch to Android</action>
+						<action function="set">tw_action_param=/sbin/scion switch android</action>
+						<action function="page">scion_confirm</action>
+					</actions>
+				</listitem>
+				<listitem name="Start iOS 16.5 next">
+					<actions>
+						<action function="set">tw_back=scion_switch</action>
+						<action function="set">tw_action_text1=Switch to iOS 16.5</action>
+						<action function="set">tw_text1=scion/boot-ios165.img goes to BOOT</action>
+						<action function="set">tw_text2=BOOT only; checked against its .sha256 first</action>
+						<action function="set">tw_text3=USERDATA is checked, not written</action>
+						<action function="set">tw_slider_text=Swipe to switch to iOS 16.5</action>
+						<action function="set">tw_action_param=/sbin/scion switch ios165</action>
+						<action function="page">scion_confirm</action>
+					</actions>
+				</listitem>
+				<listitem name="Start iOS 27 next">
+					<actions>
+						<action function="set">tw_back=scion_switch</action>
+						<action function="set">tw_action_text1=Switch to iOS 27</action>
+						<action function="set">tw_text1=scion/boot-ios27.img goes to BOOT</action>
+						<action function="set">tw_text2=BOOT only; checked against its .sha256 first</action>
+						<action function="set">tw_text3=USERDATA is checked, not written</action>
+						<action function="set">tw_slider_text=Swipe to switch to iOS 27</action>
+						<action function="set">tw_action_param=/sbin/scion switch ios27</action>
+						<action function="page">scion_confirm</action>
+					</actions>
+				</listitem>
+				<listitem name="Show the boot library">
+					<actions>
+						<action function="set">tw_back=scion_switch</action>
+						<action function="set">tw_action_text1=Boot library</action>
+						<action function="set">tw_action_param=/sbin/scion bootlib</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="Save BOOT now as Android's">
+					<actions>
+						<action function="set">tw_back=scion_switch</action>
+						<action function="set">tw_action_text1=Save BOOT as Android's</action>
+						<action function="set">tw_action_param=/sbin/scion bootlib save android</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="Save BOOT now as iOS 16.5's">
+					<actions>
+						<action function="set">tw_back=scion_switch</action>
+						<action function="set">tw_action_text1=Save BOOT as iOS 16.5's</action>
+						<action function="set">tw_action_param=/sbin/scion bootlib save ios165</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="Save BOOT now as iOS 27's">
+					<actions>
+						<action function="set">tw_back=scion_switch</action>
+						<action function="set">tw_action_text1=Save BOOT as iOS 27's</action>
+						<action function="set">tw_action_param=/sbin/scion bootlib save ios27</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+			</listbox>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note1_y%"/>
+				<text>Boot images live in scion/ on the SD card or USB drive,</text>
+			</text>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note2_y%"/>
+				<text>each with a .sha256: boot-android.img, -ios165.img, -ios27.img.</text>
+			</text>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+
+		<page name="scion_backup">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Back up and restore</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Copies go to the SD card or USB drive</text>
+			</text>
+
+			<listbox style="advanced_listbox">
+				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
+
+				<listitem name="Back up the iOS root or var (USERDATA)">
+					<actions>
+						<action function="set">tw_back=scion_backup</action>
+						<action function="set">tw_action_text1=Back up USERDATA</action>
+						<action function="set">tw_action_param=/sbin/scion backup-root</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="Restore the iOS root (needs its .sha256)">
+					<actions>
+						<action function="set">tw_scion_pick=restore</action>
+						<action function="page">scion_pick_root</action>
+					</actions>
+				</listitem>
+				<listitem name="Back up BOOT">
+					<actions>
+						<action function="set">tw_back=scion_backup</action>
+						<action function="set">tw_action_text1=Back up BOOT</action>
+						<action function="set">tw_action_param=/sbin/scion backup-boot</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="Copy EFS, SEC_EFS, CPEFS (read only)">
+					<actions>
+						<action function="set">tw_back=scion_backup</action>
+						<action function="set">tw_action_text1=Copy EFS</action>
+						<action function="set">tw_action_param=/sbin/scion copy-efs</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+			</listbox>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note1_y%"/>
+				<text>Every copy is read back and gets a .sha256. EFS is only read,</text>
+			</text>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note2_y%"/>
+				<text>never written: keep its copy private (it holds the phone's identity).</text>
+			</text>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+
+		<page name="scion_settings">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Scion settings</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>What Scion may write</text>
+			</text>
+
+			<checkbox>
+				<placement x="%indent%" y="%scion_list_y%"/>
+				<text>Advanced: TWRP's Install Image (BOOT only)</text>
+				<data variable="tw_scion_advanced"/>
+			</checkbox>
+
+			<listbox style="advanced_listbox">
+				<placement x="%indent%" y="%scion_list2_y%" w="%content_width%" h="%scion_list2_h%"/>
+
+				<listitem name="Show the write policy">
+					<actions>
+						<action function="set">tw_back=scion_settings</action>
+						<action function="set">tw_action_text1=Write policy</action>
+						<action function="set">tw_action_param=/sbin/scion policy</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="Show the log of writes">
+					<actions>
+						<action function="set">tw_back=scion_settings</action>
+						<action function="set">tw_action_text1=Log of writes</action>
+						<action function="set">tw_action_param=cat /tmp/scion-actions.log</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+			</listbox>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note1_y%"/>
+				<text>Scion's tools write BOOT and USERDATA only. EFS, the modem, the boot</text>
+			</text>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note2_y%"/>
+				<text>loader and RPMB are out of TWRP's fstab too: nothing here writes them.</text>
+			</text>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+
 	</pages>
 </recovery>
