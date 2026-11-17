@@ -1,0 +1,8 @@
+scion-logo.svg: the Scion project's own logo, as published in github.com/Scion-Project/scion-project.github.io
+(logo.svg), copied unchanged. A chip (the rootstock), a graft union and a two-leaf shoot (the scion). It is the
+project's mark, not anyone else's; it carries no SPDX line because the website repository lists its logo images
+as keeping their own licence (that repository's LICENSING.md).
+
+scripts/theme.py renders it with rsvg-convert into twres/images/splashlogo.png (the splash screen) and
+twres/images/logo.png (the icon at the left of every page's header). No other artwork is used: the other images
+of the theme are TeamWin's own PNGs from the stock image, recoloured at build time (see scripts/theme.py).

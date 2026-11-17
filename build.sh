@@ -1,12 +1,13 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT-0
 # Build Scion recovery: stock TWRP 3.7.0_9-0 for starlte (Galaxy S9, SM-G960F)
-# with the HFS Plus and APFS tools and the scion helper added to its ramdisk.
+# with Scion's theme, the HFS Plus and APFS tools and the scion helper in its ramdisk.
 #
 # Only the ramdisk changes. The kernel, the Exynos DT table, the second stage
 # slot and every header field except ramdisk_size and the id (its SHA-1) are
 # copied byte for byte from the stock image. The ramdisk is the stock cpio with
-# entries added (no stock entry is touched), recompressed as LZMA like stock.
+# entries added and the theme files under twres/ replaced (scripts/theme.py;
+# no other stock entry is touched), recompressed as LZMA like stock.
 #
 #   HFS_BIN=dir APFS_BIN=dir APFSPROGS_BIN=dir ./build.sh
 #
@@ -80,6 +81,20 @@ done
 for b in hfsfuse hfsdump; do [ -f "$HFS_BIN/$b" ] || { echo "missing $HFS_BIN/$b" >&2; exit 1; }; done
 for b in apfs-fuse apfs-extract apfsutil; do [ -f "$APFS_BIN/$b" ] || { echo "missing $APFS_BIN/$b" >&2; exit 1; }; done
 for b in mkapfs apfsck apfs-label apfs-snap; do [ -f "$APFSPROGS_BIN/$b" ] || { echo "missing $APFSPROGS_BIN/$b" >&2; exit 1; }; done
+
+# 4b. Scion's theme (scripts/theme.py): the stock /twres files it changes, made
+#     from the stock ones here, replace them in place; scion.xml is new.
+rm -rf stock/rd theme && mkdir -p stock/rd theme
+(cd stock/rd && cpio -id --quiet 'twres/*' < ../ramdisk.cpio)
+python3 "$HERE/scripts/theme.py" apply stock/rd/twres theme "$HERE/theme"
+rm -rf merged-twres && cp -r stock/rd/twres merged-twres && cp -r theme/. merged-twres/
+python3 "$HERE/scripts/theme.py" lint merged-twres
+theme_cmds=()
+while IFS= read -r f; do
+	theme_cmds+=("add 0644 twres/$f theme/$f")
+done < <(cd theme && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
+
+"$MAGISKBOOT" cpio ramdisk.cpio "${theme_cmds[@]}"
 
 "$MAGISKBOOT" cpio ramdisk.cpio \
 	"add 0750 init.recovery.samsungexynos9810.rc $O/init.recovery.samsungexynos9810.rc" \

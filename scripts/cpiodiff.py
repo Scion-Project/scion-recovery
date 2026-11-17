@@ -3,10 +3,12 @@
 """Compare two newc cpio archives entry by entry (mode, uid, gid, nlink,
 rdev, link target / content sha256).
 
-  cpiodiff.py OLD.cpio NEW.cpio [--allow-added PREFIX ...]
+  cpiodiff.py OLD.cpio NEW.cpio [--allow-added PREFIX ...] [--allow-changed PREFIX ...]
 
-Exit 0 only if every OLD entry is in NEW unchanged, and every entry that is
-new in NEW is under one of the allowed names/prefixes (if any were given).
+Exit 0 only if every OLD entry is in NEW unchanged, except entries under one of
+the --allow-changed names/prefixes, whose content (size, sha256) may differ but
+whose mode, owner, link count and rdev may not; and every entry that is new in
+NEW is under one of the allowed names/prefixes (if any were given).
 mtime is reported but not compared.
 """
 import hashlib
@@ -39,9 +41,23 @@ def main():
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     old, new = read_cpio(sys.argv[1]), read_cpio(sys.argv[2])
-    allowed = sys.argv[sys.argv.index("--allow-added") + 1:] if "--allow-added" in sys.argv else None
+    opts = {}
+    cur = None
+    for a in sys.argv[3:]:
+        if a in ("--allow-added", "--allow-changed"):
+            cur = opts.setdefault(a, [])
+        elif cur is None:
+            sys.exit(__doc__)
+        else:
+            cur.append(a)
+    allowed = opts.get("--allow-added")
+    may_change = opts.get("--allow-changed", [])
+
+    def under(name, prefixes):
+        return any(name == a or name.startswith(a.rstrip("/") + "/") for a in prefixes)
     bad = 0
     same = 0
+    replaced = 0
     keys = ("mode", "uid", "gid", "nlink", "rdev", "size", "sha256")
     for name, e in sorted(old.items()):
         n = new.get(name)
@@ -50,7 +66,10 @@ def main():
             bad += 1
             continue
         changed = [k for k in keys if e[k] != n[k]]
-        if changed:
+        if changed and under(name, may_change) and not set(changed) - {"size", "sha256"}:
+            print("REPLACED %s" % name)
+            replaced += 1
+        elif changed:
             print("CHANGED  %s: %s" % (name, ", ".join(changed)))
             bad += 1
         else:
@@ -58,12 +77,12 @@ def main():
     added = sorted(set(new) - set(old))
     for name in added:
         e = new[name]
-        ok = allowed is None or any(name == a or name.startswith(a.rstrip("/") + "/") for a in allowed)
+        ok = allowed is None or under(name, allowed)
         print("ADDED    %-40s mode %s uid %d gid %d size %d %s" % (
             name, e["mode"], e["uid"], e["gid"], e["size"], "" if ok else "  <- NOT ALLOWED"))
         bad += not ok
-    print("old entries %d, new entries %d, unchanged %d, added %d, problems %d" % (
-        len(old), len(new), same, len(added), bad))
+    print("old entries %d, new entries %d, unchanged %d, replaced %d, added %d, problems %d" % (
+        len(old), len(new), same, replaced, len(added), bad))
     sys.exit(1 if bad else 0)
 
 
