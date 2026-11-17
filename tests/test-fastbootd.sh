@@ -42,8 +42,10 @@ SCION_POLICY="$HERE/overlay/etc/scion-partitions.conf" SCION_BLOCKDIRS="$W/bynam
 	SCION_LOCK="$W/lock" SCION_ACTLOG="$W/actions.log" SCION_MAX_DOWNLOAD=2097152 \
 	"$B" --tcp "$PORT" --no-reboot --ready "$W/ready" > "$W/daemon.log" 2>&1 &
 D=$!
-i=0; while [ ! -f "$W/ready" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
-F="fastboot -s tcp:127.0.0.1:$PORT"
+i=0; while [ ! -f "$W/ready" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i + 1)); done
+[ -f "$W/ready" ] || { echo "scion-fastbootd did not start:"; cat "$W/daemon.log"; exit 1; }
+# Every client call has a time limit: a daemon that stops answering fails the test instead of hanging it.
+F="timeout 120 fastboot -s tcp:127.0.0.1:$PORT"
 echo "== getvar"
 T="getvar product"; t sh -c "$F getvar product 2>&1 | grep -q 'product: '"
 T="getvar is-userspace: yes"; t sh -c "$F getvar is-userspace 2>&1 | grep -q 'is-userspace: yes'"
