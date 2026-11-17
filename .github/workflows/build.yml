@@ -95,6 +95,23 @@ jobs:
       - name: Verify (no phone)
         run: ./verify.sh
 
+      - name: Previews of the theme (scripts/preview.py, an approximation, not TWRP)
+        run: |
+          mkdir -p preview
+          for p in main2 scion_install scion_switch scion_backup scion_disks scion_settings scion_logs; do
+            python3 scripts/preview.py work/merged-twres "$p" "preview/$p.png"
+          done
+          python3 scripts/preview.py work/merged-twres scion_confirm preview/scion_confirm.png \
+            "tw_action_text1=Install iOS root" "tw_text1=root-full.img" \
+            "tw_text2=ERASES USERDATA: Android's data or the iOS on it" \
+            "tw_text3=Every 64 MiB piece is read back and compared" "tw_slider_text=Swipe to erase and write USERDATA"
+
+      - name: Upload previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: scion-recovery-preview
+          path: preview/*.png
+
       - name: Artifact
         uses: actions/upload-artifact@v4
         with:

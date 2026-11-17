@@ -715,7 +715,7 @@
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note2_y%"/>
-				<text>each with its .sha256: boot-android.img, boot-ios165.img, boot-ios27.img.</text>
+				<text>each with a .sha256: boot-android.img, -ios165.img, -ios27.img.</text>
 			</text>
 
 			<action>
