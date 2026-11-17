@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: MIT-0
 # Make tests/data/hfsx-var.img.gz on macOS: a 64 MB journaled, case-sensitive
 # HFS Plus (HFSX) volume made with newfs_hfs as tools/mkdatavol.py does
 # (Scion-Project/scion-kernel), laid out like HakiOS' /private/var on the

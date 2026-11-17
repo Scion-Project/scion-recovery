@@ -1,4 +1,5 @@
 #!/sbin/sh
+# SPDX-License-Identifier: MIT-0
 # scion: Scion recovery helper for the Galaxy S9 (starlte) running HakiOS.
 #
 #   scion logs [DIR]        last_kmsg, pstore (the ESS log_pstore region), the

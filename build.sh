@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT-0
 # Build Scion recovery: stock TWRP 3.7.0_9-0 for starlte (Galaxy S9, SM-G960F)
 # with the HFS Plus and APFS tools and the scion helper added to its ramdisk.
 #

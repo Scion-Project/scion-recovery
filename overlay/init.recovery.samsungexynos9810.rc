@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT-0
 # Scion recovery. TWRP's init.rc already imports /init.recovery.${ro.hardware}.rc
 # (ro.hardware is samsungexynos9810 on the S9) and stock TWRP ships no such file,
 # so this adds to TWRP without editing any of its files.

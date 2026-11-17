@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: MIT-0 -->
 # Flashing Scion recovery, and getting stock TWRP back
 
 Phone: Samsung Galaxy S9, SM-G960F (starlte, Exynos 9810), bootloader already OEM-unlocked

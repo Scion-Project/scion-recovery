@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT-0
 # Build apfsprogs (mkapfs, apfsck = fsck.apfs, apfs-label, apfs-snap) as static
 # aarch64 musl executables with zig cc. GPL-2.0, github.com/linux-apfs/apfsprogs.
 #   scripts/build-apfsprogs.sh [OUTDIR]     (default ./work/apfsprogs-aarch64)

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT-0
 """Minimal Android boot image (header v0, Samsung Exynos DT in the dt slot) tool.
 
   bootimg.py info    IMG

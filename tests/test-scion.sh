@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: MIT-0
 # Host-side test of overlay/sbin/scion, run inside a privileged Alpine container:
 #
 #   docker run --rm --privileged -v REPO:/r -v BINS:/b -v APFSIMG_DIR:/t alpine:3.20 sh /r/tests/test-scion.sh

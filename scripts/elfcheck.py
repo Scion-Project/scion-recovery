@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT-0
 """elfcheck.py FILE: exit 0 if FILE is a 64-bit little-endian aarch64 ELF
 executable with no PT_INTERP and no DT_NEEDED: fully static (plain static, or
 static-pie, whose PT_DYNAMIC only carries its own relocations)."""

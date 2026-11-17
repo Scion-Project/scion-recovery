@@ -1,4 +1,5 @@
 #!/sbin/sh
+# SPDX-License-Identifier: MIT-0
 # Started once by init when TWRP comes up (init.recovery.samsungexynos9810.rc),
 # the same way TWRP starts its own /sbin/permissive.sh. init does not wait for
 # it. It copies the previous run's logs (last_kmsg, pstore, reset reason) and
