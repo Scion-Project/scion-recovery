@@ -35,6 +35,11 @@
 		<variable name="scion_note2_y" value="1390"/>
 		<variable name="scion_list2_y" value="420"/>
 		<variable name="scion_list2_h" value="880"/>
+		<variable name="scion_fb_list_h" value="340"/>
+		<variable name="scion_fb_text1_y" value="720"/>
+		<variable name="scion_fb_text2_y" value="780"/>
+		<variable name="scion_fb_text3_y" value="840"/>
+		<variable name="scion_fb_text4_y" value="920"/>
 		<variable name="tw_scion_advanced" value="0"/>
 		<variable name="tw_scion_pick" value="write"/>
 	</variables>
@@ -97,6 +102,12 @@
 					<action function="set">tw_action_param=/sbin/scion facts</action>
 					<action function="page">scion_go</action>
 				</actions>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%scion_btn_row4_y%"/>
+				<text>Fastboot</text>
+				<action function="page">scion_fastboot</action>
 			</button>
 
 			<button style="main_button_half_height">
@@ -599,6 +610,12 @@
 						<action function="page">install</action>
 					</actions>
 				</listitem>
+				<listitem name="Root or boot image from a computer: fastboot">
+					<actions>
+						<action function="page">scion_fastboot</action>
+					</actions>
+				</listitem>
+
 				<listitem name="Installer zip from a computer: ADB sideload">
 					<actions>
 						<action function="page">sideload</action>
@@ -780,6 +797,76 @@
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note2_y%"/>
 				<text>never written: keep its copy private (it holds the phone's identity).</text>
+			</text>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+		</page>
+
+		<page name="scion_fastboot">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Fastboot</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>From a computer, over USB, instead of adb</text>
+			</text>
+
+			<listbox style="advanced_listbox">
+				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_fb_list_h%"/>
+
+				<listitem name="Start fastboot (adb stops)">
+					<actions>
+						<action function="set">tw_back=scion_fastboot</action>
+						<action function="set">tw_action_text1=Start fastboot</action>
+						<action function="set">tw_action_param=/sbin/scion fastboot start</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+
+				<listitem name="Stop fastboot (adb comes back)">
+					<actions>
+						<action function="set">tw_back=scion_fastboot</action>
+						<action function="set">tw_action_text1=Stop fastboot</action>
+						<action function="set">tw_action_param=/sbin/scion fastboot stop</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+
+				<listitem name="Status and log">
+					<actions>
+						<action function="set">tw_back=scion_fastboot</action>
+						<action function="set">tw_action_text1=Fastboot status</action>
+						<action function="set">tw_action_param=/sbin/scion fastboot status</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+			</listbox>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_fb_text1_y%"/>
+				<text>fastboot flash boot BOOT.img</text>
+			</text>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_fb_text2_y%"/>
+				<text>fastboot flash userdata ROOT.img (erases Android's data)</text>
+			</text>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_fb_text3_y%"/>
+				<text>fastboot reboot; fastboot reboot bootloader = Download mode</text>
+			</text>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_fb_text4_y%"/>
+				<text>Only BOOT and USERDATA; each write is read back and compared.</text>
 			</text>
 
 			<action>

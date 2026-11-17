@@ -27,13 +27,17 @@ jobs:
         run: |
           # What goes into the image: every finding. Build and test scripts: warnings and errors.
           shellcheck -s sh overlay/sbin/scion overlay/sbin/scion-bootlogs
-          shellcheck -S warning -s sh tests/test-actions.sh
-          shellcheck -S warning build.sh verify.sh scripts/build-apfsprogs.sh
+          shellcheck -S warning -s sh tests/test-actions.sh tests/test-fastbootd.sh
+          shellcheck -S warning build.sh verify.sh scripts/build-apfsprogs.sh scripts/build-fastbootd.sh
       - name: Write policy and fstab (tests/test-policy.py)
         run: python3 -I tests/test-policy.py
       - name: scion's actions against fake partitions, in TWRP's mksh, busybox sh and dash
         run: |
           for sh in mksh "busybox sh" dash; do tests/test-actions.sh "$sh"; done
+      - name: scion-fastbootd (built here with cc) with the real fastboot client, over TCP
+        run: |
+          sudo apt-get install -y -q --no-install-recommends fastboot android-sdk-libsparse-utils
+          tests/test-fastbootd.sh
 
   image:
     runs-on: ubuntu-24.04
@@ -87,10 +91,18 @@ jobs:
           set -eux
           WORK=$RUNNER_TEMP/apfsprogs-work scripts/build-apfsprogs.sh "$PWD/tools-out/apfsprogs"
 
+      - name: scion-fastbootd (zig, static aarch64)
+        run: WORK=$RUNNER_TEMP/fastbootd-work scripts/build-fastbootd.sh "$PWD/fastbootd-out"
+
+      - name: The aarch64 scion-fastbootd under qemu, with the real fastboot client
+        run: |
+          sudo apt-get install -y -q --no-install-recommends qemu-user-static fastboot android-sdk-libsparse-utils
+          tests/test-fastbootd.sh "$PWD/fastbootd-out/scion-fastbootd"
+
       - name: Build the image
         run: |
           HFS_BIN=tools-out/hfsfuse/bin/aarch64 APFS_BIN=tools-out/apfs-fuse/bin/aarch64 \
-            APFSPROGS_BIN=tools-out/apfsprogs ./build.sh
+            APFSPROGS_BIN=tools-out/apfsprogs FASTBOOTD_BIN=fastbootd-out ./build.sh
 
       - name: Verify (no phone)
         run: ./verify.sh
@@ -98,7 +110,7 @@ jobs:
       - name: Previews of the theme (scripts/preview.py, an approximation, not TWRP)
         run: |
           mkdir -p preview
-          for p in main2 scion_install scion_switch scion_backup scion_disks scion_settings scion_logs; do
+          for p in main2 scion_install scion_switch scion_backup scion_disks scion_settings scion_logs scion_fastboot; do
             python3 scripts/preview.py work/merged-twres "$p" "preview/$p.png"
           done
           python3 scripts/preview.py work/merged-twres scion_confirm preview/scion_confirm.png \
