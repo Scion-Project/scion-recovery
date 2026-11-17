@@ -1,0 +1,22 @@
+Scion recovery
+Copyright the Scion project contributors.
+
+This repository builds a recovery image from TeamWin Recovery Project's (TWRP) image for the Samsung Galaxy S9
+(starlte), version 3.7.0_9-0, downloaded from https://dl.twrp.me/starlte/ and checked against its published
+SHA-256. TWRP: https://github.com/TeamWin/android_bootable_recovery and
+https://github.com/TeamWin/android_device_samsung_starlte, by TeamWin and contributors. Its Linux kernel is
+Samsung's (GPL-2.0), sources at https://opensource.samsung.com and
+https://github.com/Scion-Project/android_kernel_samsung_exynos9810.
+
+The image's GUI theme is TWRP's, edited at build time by scripts/theme.py: TeamWin's XML and images, recoloured
+and with Scion's pages added. The splash screen says it is built on TWRP by TeamWin.
+
+Third-party software built into the image, each under its own licence (README.md, "Licences and sources"):
+apfs-fuse and apfs-extract (GPL-2.0-or-later), apfsprogs (GPL-2.0), hfsfuse (MIT, with BSD-licensed
+libraries), libfuse (LGPL-2.1), zlib, bzip2, lzfse, musl, libgcc and libstdc++ (GPL-3.0 with the runtime
+exception). Magisk's magiskboot is used at build time only and is not in the image.
+
+The Scion project's own files are MIT-0 where their first lines say so (LICENSING.md). The repository's LICENSE
+(GPL-2.0) covers the rest. Anyone who passes the image on must pass on the sources (or a written offer) with it.
+
+No Apple or Samsung proprietary file is in this repository or in the image.
