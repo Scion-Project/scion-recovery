@@ -6,6 +6,10 @@ HakiOS (XNU with iOS 16.5 user space) boots from BOOT; RECOVERY holds this image
 our safety net and debug station: it reads HakiOS' persistent `/private/var` (journaled HFS Plus
 on USERDATA), reads (and can create) APFS, and it collects the logs a HakiOS run leaves behind.
 
+It was made for the iOS 16.5 line. On the iOS 27 line the S9's root is a raw HFS Plus volume written to USERDATA from TWRP
+over USB (scion-kernel's [docs/ios27/INSTALL-S9.md](https://github.com/Scion-Project/scion-kernel/blob/main/docs/ios27/INSTALL-S9.md));
+this README does not cover that layout.
+
 It is **stock TWRP 3.7.0_9-0 for starlte with files added to its ramdisk**. Nothing else
 changes: the kernel, the Exynos DT table and every boot-image header field except
 `ramdisk_size` and the `id` checksum are copied byte for byte from TeamWin's image, and every
