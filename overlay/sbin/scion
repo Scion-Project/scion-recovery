@@ -38,7 +38,7 @@
 
 set -u
 
-SCION_VERSION=3
+SCION_VERSION=4
 PATH=/sbin:/system/bin:/system/xbin:/bin:/usr/bin:$PATH
 export PATH
 

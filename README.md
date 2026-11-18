@@ -30,12 +30,15 @@ called); without the file every write is refused. Every write hashes the source 
 does not match its `.sha256`), logs the old contents' hash to `/tmp/scion-actions.log`, writes, flushes, reads
 back and compares. One write at a time: `/tmp/scion-write.lock`, shared by the GUI, `scion` and fastboot.
 
-TWRP's own pages are held to the same list where TWRP's configuration allows it: `/efs` and `/modem` (RADIO)
-are taken out of TWRP's fstab at build time (`scripts/fstab.py`), so TWRP's Backup, Restore and Install Image
-cannot touch them, and every image partition except BOOT is marked not flashable. TWRP's **Install Image** is
-shown only with Scion settings' **Advanced** switch on, and even then lists only BOOT. EFS can be *copied*, read
-only (`scion copy-efs`). Not held to the list: TWRP's Restore of a TWRP backup's SYSTEM, VENDOR, ODM, RECOVERY
-images and DATA, TWRP's Wipe, and the terminal (a root shell can write anything; that is TWRP's nature).
+TWRP's own pages are held to the same list where TWRP's configuration allows it (`scripts/fstab.py`, at build
+time): `/efs` and `/modem` (RADIO) are out of TWRP's fstab; so is `/data` (USERDATA, where the iOS root lives:
+TWRP 3.7.0 wipes `/data` by its mount point); the only
+image lines left are BOOT and MISC; every file system line says `canbewiped=0;wipeingui=0;wipeduringfactoryreset=0`,
+so TWRP's Wipe and factory reset list nothing; `/cache` holds TWRP's settings and logs. The home pages have no
+Wipe or Restore button, Partition SD Card has no swipe, and `scripts/theme.py lint` fails the build if a page
+erases, formats or restores outside its short allowed list. TWRP's **Install Image** is shown only with Scion
+settings' **Advanced** switch on, and lists only BOOT. EFS can be *copied*, read only (`scion copy-efs`). Not
+held to the list: the terminal and zips (a root shell can write anything; that is TWRP's nature).
 
 Nothing here writes the boot loader, flashes RECOVERY, touches Knox, attestation or signatures, or changes
 secure firmware. Download mode lives in the boot loader, which nothing here writes: it is always the way back.
@@ -60,7 +63,7 @@ secure firmware. Download mode lives in the boot loader, which nothing here writ
 | Phone info | `facts` | nothing: model, boot loader, battery, memory, partitions, storage |
 | Scion settings | `policy`, the Advanced switch, the log of writes | nothing |
 
-TWRP's own pages are all there below Scion's: Install, Wipe, Backup, Restore, Mount (and MTP), Settings
+TWRP's own pages are there below Scion's: Install, Backup, Mount (and MTP), Settings
 (brightness, screen timeout, time zone, vibration, language), Advanced (file manager, terminal, ADB sideload,
 copy log, fix contexts), Reboot (System, Recovery, Download, Power Off). TWRP's decryption of Android's data is
 TWRP's, as built by TeamWin.

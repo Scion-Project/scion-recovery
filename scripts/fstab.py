@@ -13,6 +13,28 @@ flashimg=0. So:
   - an image partition not on a "write" line gets flashimg=0: TWRP's
     Install Image lists only BOOT. That page is also behind Scion's advanced
     switch (theme/scion.xml).
+  - /data (USERDATA) is taken out altogether. TWRP 3.7.0_9 gives /data
+    "can be wiped", "wipe in GUI" and "wipe during factory reset" by its mount
+    point (partition.cpp, Process_Fstab_Line), so Wipe, Format Data and a
+    factory reset would erase USERDATA, where the iOS root lives. Every /data
+    lookup in TWRP's partition manager is null-checked; Scion's tools reach
+    USERDATA by its by-name link. TWRP keeps its logs on /cache.
+  - the image ("emmc") lines that are there only for TWRP's Backup and Restore
+    (/recovery, /system_image, /vendor_image, /odm_image) are taken out: only
+    /boot and /misc stay.
+  - /system (SYSTEM) stays (TWRP's SAR detection needs a /system line: without
+    one, its first pass sets up every partition on a throwaway partition
+    manager and TWRP does not come up), but gets "removable": on these phones
+    SYSTEM holds iOS 16.5's disk (HFS Plus or APFS) or nothing, never ext4,
+    and TWRP's start-up size check of a removable partition does not print
+    "Failed to mount '/system'". Scion reaches SYSTEM by its by-name link.
+  - /cache gets "storage;settingsstorage": with no /data, TWRP keeps its
+    settings, backups folder and storage path on /cache instead of trying
+    /data/media ("Unable to mount storage", "Unable to mount
+    /data/media/TWRP/.twrps").
+  - every remaining file system line (system, vendor, odm, cache, preload,
+    external_sd, usb-otg) gets canbewiped=0;wipeingui=0;wipeduringfactoryreset=0,
+    replacing any wipe flag it had: TWRP's Wipe and factory reset list nothing.
 
   fstab.py apply POLICY STOCK_FSTAB OUT_FSTAB
   fstab.py check POLICY FSTAB        exit 1 if FSTAB disagrees with POLICY
@@ -46,6 +68,13 @@ def parse(line):
     return f[0], f[1], m.group(1).upper() if m else None, flags
 
 
+EMMC_KEEP = {"BOOT", "MISC"}
+WIPE_FLAGS = ("canbewiped", "wipeingui", "wipeduringfactoryreset", "formattable")
+NO_WIPE = "canbewiped=0;wipeingui=0;wipeduringfactoryreset=0"
+CACHE_STORAGE = "storage;settingsstorage"
+FLAG_ON = r"(^|;)(%s)(=[yY1][^;]*)?(?=;|$)"
+
+
 def no_flash(flags):
     return re.search(r"(^|;)flashimg=0(;|$)", flags) is not None
 
@@ -62,6 +91,26 @@ def apply(pol, src, dst):
             out.append("# Scion: %s (%s) is on the policy's never list: not for TWRP to back up, restore or flash" % (mount, name))
             out.append("# " + line)
             continue
+        if mount == "/data" or name == "USERDATA":
+            out.append("# Scion: %s (%s) is not in TWRP's fstab: TWRP would wipe it by its mount point (Wipe, Format Data, factory reset)" % (mount, name))
+            out.append("# " + line)
+            continue
+        if mount == "/system" and not re.search(r"(^|;)removable(;|$)", flags):
+            line = line.rstrip() + (";" if "flags=" in line else "        flags=") + "removable"
+        if mount == "/cache":
+            line = line.rstrip() + (";" if "flags=" in line else "        flags=") + CACHE_STORAGE
+        if fstype == "emmc" and name not in EMMC_KEEP:
+            out.append("# Scion: %s (%s) was there only for TWRP's Backup and Restore of the raw image" % (mount, name))
+            out.append("# " + line)
+            continue
+        if fstype != "emmc":
+            i = line.find("flags=")
+            if i < 0:
+                line = line.rstrip() + "        flags=" + NO_WIPE
+            else:
+                i += len("flags=")
+                rest = re.sub(r"(^|;)(%s)(=[^;]*)?(?=;|$)" % "|".join(WIPE_FLAGS), "", line[i:]).lstrip(";")
+                line = line[:i] + (rest + ";" if rest else "") + NO_WIPE
         if fstype == "emmc" and name not in pol["write"] and not no_flash(flags):
             if re.search(r"(^|;)flashimg(=[^;]*)?(;|$)", flags):
                 i = line.index("flags=") + len("flags=")
@@ -76,17 +125,39 @@ def apply(pol, src, dst):
 
 def check(pol, path):
     bad = []
+    mounts = []
     for line in open(path):
         p = parse(line)
         if p is None:
             continue
         mount, fstype, name, flags = p
+        mounts.append(mount)
         if name in pol["never"]:
             bad.append("%s (%s) is on the never list" % (mount, name))
+        if mount == "/system" and not re.search(r"(^|;)removable(;|$)", flags):
+            bad.append("/system (%s) is not removable: TWRP would print its failed mount at start-up" % name)
+        if mount == "/cache" and not re.search(r"(^|;)settingsstorage(;|$)", flags):
+            bad.append("/cache (%s) is not TWRP's settings storage" % name)
         if fstype == "emmc" and name not in pol["write"] and not no_flash(flags):
             bad.append("%s (%s) is flashable in TWRP and not on the write list" % (mount, name))
         if re.search(r"(^|;)flashimg(=1|=y|=Y)?(;|$)", flags) and name not in pol["write"]:
             bad.append("%s (%s) has flashimg and is not on the write list" % (mount, name))
+        if mount == "/data" or name == "USERDATA":
+            bad.append("%s (%s): TWRP wipes /data by its mount point; it must not be in the fstab" % (mount, name))
+        if fstype == "emmc" and name not in EMMC_KEEP:
+            bad.append("%s (%s): an image line other than BOOT or MISC" % (mount, name))
+        if re.search(FLAG_ON % "|".join(WIPE_FLAGS), flags):
+            bad.append("%s (%s) has a wipe flag on" % (mount, name))
+        if re.search(r"(^|;)wipeduringfactoryreset(?!=[0nN])", flags):
+            bad.append("%s (%s) has the factory-reset flag" % (mount, name))
+        if fstype != "emmc":
+            for f in WIPE_FLAGS[:3]:
+                if not re.search(r"(^|;)%s=0(;|$)" % f, flags):
+                    bad.append("%s (%s) does not say %s=0 (TWRP's default for a file system is wipeable)" % (mount, name, f))
+    if "/system" not in mounts:
+        bad.append("no /system line: TWRP's SAR detection needs one")
+    if "/cache" not in mounts:
+        bad.append("no /cache line: TWRP needs it for its settings and logs")
     return bad
 
 

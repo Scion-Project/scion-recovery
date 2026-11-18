@@ -14,9 +14,10 @@
 
      Coordinates are in TWRP's 1080x1920 design space; TWRP scales them to the
      S9's 1440x2960 panel. The <variables> block below is moved into ui.xml's
-     by theme.py. NOT run on a phone: checked by scripts/theme.py lint
-     (well-formed, every page, style, template, resource and variable it names
-     exists) only. -->
+     by theme.py. scripts/theme.py lint checks it: well-formed, every page,
+     style, template, resource and variable it names exists, every line fits
+     the screen in TWRP's font (TWRP does not wrap text), every page has a
+     home key, and no page erases or restores. -->
 <recovery>
 	<variables>
 		<variable name="scion_section1_y" value="276"/>
@@ -42,6 +43,8 @@
 		<variable name="scion_fb_text4_y" value="920"/>
 		<variable name="tw_scion_advanced" value="0"/>
 		<variable name="tw_scion_pick" value="write"/>
+		<!-- SYSTEM is not Android's here: no "keep system read only?" page at start; it stays read only. -->
+		<variable name="tw_mount_system_ro" value="1" persist="1"/>
 	</variables>
 
 	<pages>
@@ -133,42 +136,30 @@
 
 			<button style="button_quarter_width">
 				<placement x="%btn4_col2_x%" y="%scion_twrp_row1_y%"/>
-				<text>{@wipe_btn=Wipe}</text>
-				<action function="page">wipe</action>
-			</button>
-
-			<button style="button_quarter_width">
-				<placement x="%btn4_col3_x%" y="%scion_twrp_row1_y%"/>
 				<text>{@backup_btn=Backup}</text>
 				<action function="page">backup</action>
 			</button>
 
 			<button style="button_quarter_width">
-				<placement x="%btn4_col4_x%" y="%scion_twrp_row1_y%"/>
-				<text>{@restore_btn=Restore}</text>
-				<action function="page">restore</action>
-			</button>
-
-			<button style="button_quarter_width">
-				<placement x="%indent%" y="%scion_twrp_row2_y%"/>
+				<placement x="%btn4_col3_x%" y="%scion_twrp_row1_y%"/>
 				<text>{@mount_btn=Mount}</text>
 				<action function="page">mount</action>
 			</button>
 
 			<button style="button_quarter_width">
-				<placement x="%btn4_col2_x%" y="%scion_twrp_row2_y%"/>
+				<placement x="%btn4_col4_x%" y="%scion_twrp_row1_y%"/>
 				<text>{@settings_btn=Settings}</text>
 				<action function="page">settings</action>
 			</button>
 
 			<button style="button_quarter_width">
-				<placement x="%btn4_col3_x%" y="%scion_twrp_row2_y%"/>
+				<placement x="%indent%" y="%scion_twrp_row2_y%"/>
 				<text>{@advanced_btn=Advanced}</text>
 				<action function="page">advanced</action>
 			</button>
 
 			<button style="button_quarter_width">
-				<placement x="%btn4_col4_x%" y="%scion_twrp_row2_y%"/>
+				<placement x="%btn4_col2_x%" y="%scion_twrp_row2_y%"/>
 				<text>{@reboot_btn=Reboot}</text>
 				<action function="page">reboot</action>
 			</button>
@@ -178,6 +169,14 @@
 				<text>Scion's actions write BOOT and USERDATA only.</text>
 			</text>
 
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
 		</page>
 
 		<!-- Entered from every Scion button: a fresh operation state, then scion_run. -->
@@ -216,6 +215,10 @@
 					<action function="set">tw_terminal_location=/tmp</action>
 					<action function="terminalcommand">%tw_action_param%</action>
 				</actions>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -267,6 +270,10 @@
 					<action function="page">clear_vars</action>
 				</actions>
 			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
 		</page>
 
 		<!-- A swipe before anything that writes. tw_text1..3 say what, tw_slider_text the swipe. -->
@@ -314,6 +321,10 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -363,12 +374,20 @@
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note_y%"/>
-				<text>Logs go to /tmp (RAM). On a computer: adb pull the path printed.</text>
+				<text>Logs go to /tmp (RAM): adb pull the path printed.</text>
 			</text>
 
 			<action>
 				<touch key="back"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -425,12 +444,20 @@
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note_y%"/>
-				<text>Mounted at /scion/var: browse it with Advanced > File Manager.</text>
+				<text>Mounted at /scion/var: see Advanced > File Manager.</text>
 			</text>
 
 			<action>
 				<touch key="back"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -500,7 +527,7 @@
 					<action function="set">tw_back=scion_backup</action>
 					<action function="set">tw_action_text1=Restore iOS root</action>
 					<action function="set">tw_text1=%tw_file%</action>
-					<action function="set">tw_text2=ERASES USERDATA; needs %tw_file%.sha256</action>
+					<action function="set">tw_text2=ERASES USERDATA; needs the image's .sha256</action>
 					<action function="set">tw_text3=Every 64 MiB piece is read back and compared</action>
 					<action function="set">tw_slider_text=Swipe to restore USERDATA</action>
 					<action function="set">tw_action_param=/sbin/scion restore-root "%tw_filename%" --yes</action>
@@ -516,6 +543,10 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -538,7 +569,7 @@
 				<placement x="%indent%" y="%row3_y%" w="%content_width%" h="%fileselector_install_height%"/>
 				<text>%tw_zip_location%</text>
 				<filter extn=".img" folders="1" files="1"/>
-				<path name="tw_zip_location" default="/sdcard"/>
+				<path name="tw_zip_location" default="/external_sd"/>
 				<data name="tw_filename"/>
 				<selection name="tw_file"/>
 			</fileselector>
@@ -575,6 +606,10 @@
 				<touch key="home"/>
 				<action function="page">main</action>
 			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
 		</page>
 		<page name="scion_install">
 			<template name="page"/>
@@ -592,7 +627,7 @@
 			<listbox style="advanced_listbox">
 				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
 
-				<listitem name="iOS root image to USERDATA (from SD card or USB drive)">
+				<listitem name="iOS root image to USERDATA (SD card or USB)">
 					<actions>
 						<action function="set">tw_scion_pick=write</action>
 						<action function="page">scion_pick_root</action>
@@ -625,17 +660,25 @@
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note1_y%"/>
-				<text>A root image is too big for internal storage: it lives on USERDATA.</text>
+				<text>A root image is too big for internal storage.</text>
 			</text>
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note2_y%"/>
-				<text>Use exFAT on the SD card or USB drive (FAT32 stops at 4 GiB).</text>
+				<text>Use exFAT on the SD card or USB (FAT32: 4 GiB max).</text>
 			</text>
 
 			<action>
 				<touch key="back"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -727,17 +770,25 @@
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note1_y%"/>
-				<text>Boot images live in scion/ on the SD card or USB drive,</text>
+				<text>Boot images: scion/ on the SD card or USB, each</text>
 			</text>
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note2_y%"/>
-				<text>each with a .sha256: boot-android.img, -ios165.img, -ios27.img.</text>
+				<text>with a .sha256: boot-android, -ios165, -ios27.img</text>
 			</text>
 
 			<action>
 				<touch key="back"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -791,17 +842,25 @@
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note1_y%"/>
-				<text>Every copy is read back and gets a .sha256. EFS is only read,</text>
+				<text>Every copy is read back and gets a .sha256.</text>
 			</text>
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note2_y%"/>
-				<text>never written: keep its copy private (it holds the phone's identity).</text>
+				<text>EFS is only read. Its copy is the phone's identity.</text>
 			</text>
 
 			<action>
 				<touch key="back"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -861,17 +920,25 @@
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_fb_text3_y%"/>
-				<text>fastboot reboot; fastboot reboot bootloader = Download mode</text>
+				<text>fastboot reboot bootloader = Download mode</text>
 			</text>
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_fb_text4_y%"/>
-				<text>Only BOOT and USERDATA; each write is read back and compared.</text>
+				<text>BOOT and USERDATA only; every write is read back.</text>
 			</text>
 
 			<action>
 				<touch key="back"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -917,17 +984,25 @@
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note1_y%"/>
-				<text>Scion's tools write BOOT and USERDATA only. EFS, the modem, the boot</text>
+				<text>Scion writes BOOT and USERDATA only. EFS, modem,</text>
 			</text>
 
 			<text style="text_s">
 				<placement x="%indent%" y="%scion_note2_y%"/>
-				<text>loader and RPMB are out of TWRP's fstab too: nothing here writes them.</text>
+				<text>boot loader, RPMB: not in TWRP's fstab either.</text>
 			</text>
 
 			<action>
 				<touch key="back"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
