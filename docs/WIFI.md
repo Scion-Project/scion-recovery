@@ -53,8 +53,16 @@ installed (`tests/data/update-test/manifest.json` is one: LICENSE as a stand-in 
 **Not done yet**: a real update host (the manifest and images); signing the manifest (today it is trusted for
 coming over https from the configured address); hidden networks; enterprise (802.1X) Wi-Fi.
 
-## Tested on a phone (18 November 2026, phone 2)
+## Tested on a phone (18 November 2026, phone 2, image 8fd3eef: sha256 fa72a3e4...)
 
-By hand over adb on scion 4 and then on the built image: firmware loaded (`Firmware version = wl0: ... 13.50.37
-(B2 Network/rsdb)`, CLM `Samsung.R7`), joined a WPA2 5 GHz network, DHCP lease, `ping 1.1.1.1`, and
-`curl https://api.ipsw.me/v4/device/iPhone12,1?type=ipsw` (HTTP 200, 57 KB).
+- Over adb: firmware loaded (`Firmware version = wl0: ... 13.50.37 (B2 Network/rsdb)`, CLM `Samsung.R7`),
+  joined WPA2 networks on 5 GHz and 2.4 GHz, DHCP lease, clock set by NTP, `ping 1.1.1.1` 0 % loss,
+  `curl https://api.ipsw.me/v4/device/iPhone12,1?type=ipsw` HTTP 200 (57 KB). The passphrase scrub leaves
+  `I:Running command: test '**********'` in the log.
+- In the GUI (taps): Scion settings > Wi-Fi > a network > Join (saved network, empty field) > the result page
+  ("Joined ..., address ..."), status line "Connected: ..., 192.168.0.101". Install iOS > Over Wi-Fi >
+  Check (the test manifest) > Download and check (LICENSE as BOOT, to /cache, sha256 OK). A secure network
+  with no saved passphrase and an empty field says "... needs its passphrase". Install refuses a test update.
+- Not tried on a phone: typing a new passphrase on the keyboard (the same command path as above, tested
+  over adb), a real install (USERDATA/BOOT), a resumed download over Wi-Fi (tested on a computer,
+  tests/test-net.sh), the start-up MTP fix with a stale `tw_mtp_enabled=0` (it would cut adb if it failed).
