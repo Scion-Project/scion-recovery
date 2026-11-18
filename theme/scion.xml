@@ -1222,7 +1222,8 @@
 		</page>
 
 		<!-- Joins with TWRP's cmd action (logged, not shown on screen; scion-net
-		     scrubs the passphrase from the log), then shows what it said. -->
+		     scrubs the passphrase from the log), then scion_wifi_result. (Not straight
+		     to scion_go: TWRP drops a threaded action started while cmd's is ending.) -->
 		<page name="scion_wifi_joining">
 			<template name="page"/>
 
@@ -1248,16 +1249,75 @@
 				<actions>
 					<action function="set">tw_scion_wifi_psk=</action>
 					<action function="set">tw_scion_wifi_psk_display=</action>
-					<action function="set">tw_back=scion_wifi</action>
-					<action function="set">tw_action_text1=Wi-Fi</action>
-					<action function="set">tw_action_param=cat /tmp/scion-wifi/join.log</action>
-					<action function="page">scion_go</action>
+					<action function="page">scion_wifi_result</action>
 				</actions>
 			</action>
 
 			<action>
 				<action function="cmd">/sbin/scion-net wifi-join '%tw_scion_wifi_net%' '%tw_scion_wifi_psk%' &gt; /tmp/scion-wifi/join.log 2&gt;&amp;1</action>
 			</action>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">scion_wifi</action>
+			</action>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
+		</page>
+
+		<!-- What wifi-join said: its last line is the one file in /tmp/scion-wifi/result. -->
+		<page name="scion_wifi_result">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Wi-Fi</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>%tw_scion_wifi_name%</text>
+			</text>
+
+			<fileselector>
+				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_wifi_state_h%"/>
+				<filter folders="0" files="1"/>
+				<path name="tw_scion_wifi_resultdir" default="/tmp/scion-wifi/result"/>
+				<data name="tw_scion_wifi_resultfile"/>
+				<selection name="tw_scion_wifi_resultname"/>
+			</fileselector>
+
+			<fileselector>
+				<placement x="%indent%" y="%scion_wifi_list_y%" w="%content_width%" h="%scion_wifi_state_h%"/>
+				<filter folders="0" files="1"/>
+				<path name="tw_scion_wifi_statedir" default="/tmp/scion-wifi/state"/>
+				<data name="tw_scion_wifi_statefile2"/>
+				<selection name="tw_scion_wifi_statename2"/>
+			</fileselector>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%row21a_y%"/>
+				<text>{@back_btn=Back}</text>
+				<action function="page">scion_wifi</action>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%center_x%" y="%row21a_y%"/>
+				<text>Details</text>
+				<actions>
+					<action function="set">tw_back=scion_wifi</action>
+					<action function="set">tw_action_text1=Wi-Fi</action>
+					<action function="set">tw_action_param=cat /tmp/scion-wifi/join.log</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</button>
 
 			<action>
 				<touch key="back"/>

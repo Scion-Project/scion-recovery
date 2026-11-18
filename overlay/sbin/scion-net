@@ -53,7 +53,13 @@ MIN_BATTERY=${MIN_BATTERY:-30}
 PLACEHOLDER_URL="https://updates.example.invalid/scion/manifest.json"
 
 say() { printf 'scion: %s\n' "$*"; }
-die() { printf 'scion: error: %s\n' "$*" >&2; exit 1; }
+die() { printf 'scion: error: %s\n' "$*" >&2; result "$*"; exit 1; }
+# result TEXT: for wifi-join, the GUI's result line (a file named TEXT in $WIFI_TMP/result).
+result() {
+	[ "${JOIN_RESULT:-0}" = 1 ] || return 0
+	mkdir -p "$WIFI_TMP/result" && rm -f "$WIFI_TMP/result"/*
+	: > "$WIFI_TMP/result/$(printf '%s' "$1" | tr "/'\"\\\\%\`\$" '_______' | cut -c1-150)"
+}
 human() { awk -v a="$1" 'BEGIN { split("B KiB MiB GiB TiB", u); i = 1; while (a >= 1024 && i < 5) { a /= 1024; i++ } printf "%.1f %s", a, u[i] }'; }
 big_le() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 <= b + 0) }'; }
 fsize() { if [ -f "$1" ]; then wc -c < "$1" | tr -d ' '; else echo 0; fi; }
@@ -190,6 +196,8 @@ scrub() {
 cmd_wifi_join() {
 	net=${1:-}; pass=${2:-}
 	mkdir -p "$WIFI_TMP"
+	JOIN_RESULT=1
+	result "Joining..."
 	scrub "$pass"
 	[ -n "$net" ] || die "usage: scion-net wifi-join NETWORK [PASSPHRASE]"
 	if [ -f "$net" ]; then
@@ -225,6 +233,7 @@ cmd_wifi_join() {
 	say "joined $ssid (saved: it is joined by itself next time)"
 	online
 	cmd_wifi_status
+	result "Joined $(printf '%s' "$ssid" | tr "/'\"\\\\%\`\$" '_______'), address $(ipv4)"
 }
 
 cmd_wifi_connect() {
@@ -375,7 +384,7 @@ need_net() {
 
 # boot: at start-up (init, scion_net service): the GUI's folders, "Wi-Fi is off".
 cmd_boot() {
-	mkdir -p "$WIFI_TMP/nets" "$WIFI_TMP/state"
+	mkdir -p "$WIFI_TMP/nets" "$WIFI_TMP/state" "$WIFI_TMP/result"
 	status_file
 }
 

@@ -136,7 +136,7 @@ jobs:
       - name: Previews of the theme (scripts/preview.py, an approximation, not TWRP)
         run: |
           mkdir -p preview
-          for p in main2 scion_install scion_switch scion_backup scion_disks scion_settings scion_logs scion_fastboot scion_wifi scion_wifi_join scion_update; do
+          for p in main2 scion_install scion_switch scion_backup scion_disks scion_settings scion_logs scion_fastboot scion_wifi scion_wifi_join scion_wifi_result scion_update; do
             python3 scripts/preview.py work/merged-twres "$p" "preview/$p.png"
           done
           python3 scripts/preview.py work/merged-twres scion_confirm preview/scion_confirm.png \
