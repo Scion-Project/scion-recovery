@@ -36,6 +36,9 @@ RESTORE.md, C (stock TWRP back from Download mode; BOOT and USERDATA are not aff
    Baseband), Settings > brightness and timeout, Reboot (System, Recovery, Download, Power Off),
    Advanced > Terminal, File Manager.
 7. Scion settings > Advanced on: Install > Install Image lists **Boot only**. Turn it off again.
+8. Recovery 4 (18 November): USERDATA is in no wipe, format or restore list; the home pages have no Wipe or
+   Restore button; the start-up shows no red mount error; text is not cut off at the right edge; Home works on
+   every Scion page. Mount: MTP stays on (the `E:[MTP] Failed to start usb driver!` line is expected).
 
 From the computer: `adb shell scion facts`, `adb shell scion policy`, `adb shell scion check EFS` (must
 refuse), `adb shell scion check BOOT`.
@@ -68,6 +71,14 @@ Insert an exFAT SD card. **Back up** > Back up BOOT; > Copy EFS (read only); > B
 Install iOS > iOS root image > pick `root-full.img` on an exFAT SD card (with `root-full.img.sha256` beside
 it for the up-front check): every 16 pieces a progress line, at the end "every piece read back and
 matched". Time it. Back up > Restore with a backup made in 3.
+
+## 7. Wi-Fi and Install (recovery 5, in testing; writes nothing unless the update is installed)
+
+Only with a recovery 5 build. Not run on a phone yet.
+
+1. **Wi-Fi**: scan; join a network with a passphrase. Check that the network is joined and that the passphrase
+   is saved in `/cache`.
+2. **Install**: download an update over Wi-Fi and check that it is verified. Stop if the verification fails.
 
 ## What to report
 

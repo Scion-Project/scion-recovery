@@ -8,8 +8,12 @@ root, reads iOS's HFS Plus and APFS volumes, keeps the logs a run leaves behind,
 **fastboot** (`fastboot flash boot|userdata`, `fastboot reboot`), which the S9's own boot loader does not have.
 Everything TWRP does is still there.
 
-**Nothing in this repository has been run on a phone yet** (17 November 2026). What is tested, and how, is in
-"Tests" below; what to do on a phone, in what order, is in [TESTING.md](TESTING.md).
+**Recovery 4 (18 November 2026)** cannot wipe or format USERDATA from the recovery, has no clipped text, starts
+without red mount errors, and has a Home key on every Scion page (details in [CHANGELOG.md](CHANGELOG.md)). Its
+changes are checked by CI ("Tests" below) and are not yet recorded as run on a phone. What to do on a phone, in
+what order, is in [TESTING.md](TESTING.md). Wi-Fi and an Install page are in testing (recovery 5, below).
+
+What is collected from a phone, and what is not, is in [PRIVACY.md](PRIVACY.md).
 
 Pictures of the home page and of every Scion page are made by CI on each run (the `scion-recovery-preview`
 artifact of the [build workflow](https://github.com/Scion-Project/scion-recovery/actions/workflows/build.yml)).
@@ -80,6 +84,13 @@ in BOOT, or copy the files there.
 **Storage.** USERDATA is where an iOS root goes, so a root image cannot come from internal storage while it
 is being written: put it on the SD card or a USB drive formatted **exFAT** (FAT32 holds files up to 4 GiB; a
 root is about 32 GiB with 20 GiB used), or send it with fastboot.
+
+### Wi-Fi and Install (recovery 5, in testing)
+
+Recovery 5 is in progress and has not been run on a phone.
+
+- **Wi-Fi** scans for networks and joins one. The passphrases are saved on the phone, in `/cache`.
+- **Install** downloads an update over Wi-Fi and verifies it.
 
 ### fastboot
 
@@ -185,6 +196,9 @@ only with the owner's explicit go (their standing write allow-list is BOOT and U
 See [RESTORE.md](RESTORE.md): from TWRP (`dd` by partition name, with the hash compared), from a computer in
 Download mode with heimdall or Odin (`out/scion-recovery.tar` in AP), and how to put stock TWRP back if Scion
 recovery does not start. Download mode is never affected.
+
+**Keep MTP enabled.** TWRP's MTP start logs `E:[MTP] Failed to start usb driver!`, and that is expected. The
+same start brings up the USB gadget that adb uses; with MTP off at start, the phone has no USB connection.
 
 ## Licences and sources (GPL)
 
