@@ -14,3 +14,7 @@ service scion_bootlogs /sbin/scion-bootlogs
 service scion_net /sbin/scion-net boot
     oneshot
     seclabel u:r:recovery:s0
+
+# What scion-report puts in a report as the recovery's build.
+on init
+    setprop ro.scion.version 5

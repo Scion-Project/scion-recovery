@@ -60,6 +60,13 @@ class H(http.server.SimpleHTTPRequestHandler):
         else:
             self.send_response(200)
         self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", 0)); body = self.rfile.read(n)
+        if self.path == "/report" and self.headers.get("Content-Type") == "application/json":
+            open(os.path.join(sys.argv[2], "posted.json"), "ab").write(body)
+            self.send_response(200); self.send_header("Content-Length", "0"); self.end_headers()
+        else:
+            self.send_error(500)
 os.chdir(sys.argv[2])
 http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 EOF
@@ -128,6 +135,25 @@ T="a test update: check"; t $N update-check
 T="a test update: download"; t $N update-download
 T="a test update is never installed"; nt $N update-install --yes
 T="  and scion was not called"; t test ! -e "$W/scion.calls"
+
+# --- crash and boot reports: only with consent
+mkdir -p "$W/boot/pstore"
+printf 'reason: KPON\n' > "$W/boot/proc-reset_reason.txt"
+printf '[  1.0] CRASH: panic(cpu 0): test wlan0 c4:eb:43:95:45:a3 at 192.168.0.101\n[  1.1] nothing\n' > "$W/boot/last_kmsg.txt"
+printf '#!/bin/sh\nexec sh %s "$@"\n' "$HERE/overlay/sbin/scion-report" > "$W/scion-report"; chmod +x "$W/scion-report"
+RQ="REPORT_Q=$W/cache/rq REPORT_TMP=$W/rt BOOTLOGS=$W/boot CONSENT=$W/cache/consent SCION_REPORT=$W/scion-report SCION_CACHE_DIR=$W/cache"
+T="report-send without an answer refuses"; nt env $RQ REPORT_URL="$U/report" $N report-send
+T="  and sends nothing"; t test ! -e "$W/www/posted.json"
+T="consent no"; t env $RQ $N report-consent no
+T="report-send after no refuses"; nt env $RQ REPORT_URL="$U/report" $N report-send
+T="consent yes (no Wi-Fi here: nothing sent yet)"; t env $RQ $N report-consent yes
+T="report-send with a failing server keeps the report"; nt env $RQ REPORT_URL="$U/nope" $N report-send
+T="  one queued"; t test "$(ls "$W/cache/rq" | wc -l)" -eq 1
+T="report-send sends the queued report"; t env $RQ REPORT_URL="$U/report" $N report-send
+T="  the queue is empty"; t test "$(ls "$W/cache/rq" | wc -l)" -eq 0
+T="  the server got the crash line"; t grep -q 'CRASH: panic' "$W/www/posted.json"
+T="  scrubbed: no MAC, no IP"; nt grep -qE 'c4:eb:43|192\.168\.0\.101' "$W/www/posted.json"
+T="consent no empties the queue"; t sh -c "mkdir -p '$W/cache/rq' && : > '$W/cache/rq/x.json' && env $RQ $N report-consent no && test ! -e '$W/cache/rq/x.json'"
 
 # --- the passphrase scrub
 mkdir -p "$W/wifi"

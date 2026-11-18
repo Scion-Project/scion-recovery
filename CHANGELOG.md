@@ -3,6 +3,13 @@
 
 ## scion 5 (18 November 2026): Wi-Fi and Install over Wi-Fi
 
+- **Opt-in crash and boot reports**: asked once after Wi-Fi first works ("Help Scion?"), changed in Scion
+  settings; `scion-report` builds and scrubs the report on the phone, `scion-net report-send` POSTs it to the
+  report server (queued in /cache/scion/report-queue when it fails), only with Yes. PRIVACY.md.
+- **Wi-Fi page redone** after the first look on a phone: a status card, a plain network list with band and
+  signal ("joined" on the current one), Scan and Wi-Fi off; a join ends on a result page. No `%` in labels
+  (TWRP read it as a variable and broke the join command).
+
 - **Wi-Fi** (Scion settings > Wi-Fi, or Install iOS > Over Wi-Fi): scan, tap a network, type its passphrase
   (masked; saved mode 600 in /cache/scion/wifi; scrubbed from TWRP's log), status line. The kernel's own
   bcmdhd with VENDOR's firmware (read only); static wpa_supplicant, curl and busybox (udhcpc, ntpd). docs/WIFI.md.

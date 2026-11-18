@@ -15,6 +15,11 @@
 #   scion-net update-download       download it (resumes), check its sha256
 #   scion-net update-install --yes  write it: the root to USERDATA, then BOOT,
 #                                   through /sbin/scion (its write policy)
+#   scion-net report-consent yes|no the answer to "send anonymous crash and boot
+#                                   reports?" (/cache/scion/report-consent)
+#   scion-net report-send [--auto]  build this boot's report (scion-report,
+#                                   scrubbed) and send it and any queued ones;
+#                                   only with consent "yes". PRIVACY.md
 #
 # Wi-Fi: the S9's Broadcom driver (bcmdhd) is in the recovery kernel; its
 # firmware is on VENDOR, which is mounted READ ONLY for a moment to copy it to
@@ -27,6 +32,9 @@ set -u
 PATH=/sbin:/system/bin:/bin:/usr/bin:$PATH
 export PATH
 
+# mksh writes here-documents to $TMPDIR: adb's shell sets one that recovery does not have.
+[ -d "${TMPDIR:-/nonexistent}" ] || TMPDIR=/tmp
+export TMPDIR
 NET_BIN=${NET_BIN:-/scion/bin}
 WPA_CONF_DIR=${WPA_CONF_DIR:-/cache/scion/wifi}
 WPA_CONF=$WPA_CONF_DIR/wpa_supplicant.conf
@@ -51,6 +59,12 @@ SCION=${SCION:-/sbin/scion}
 BATTERY=${BATTERY:-/sys/class/power_supply/battery}
 MIN_BATTERY=${MIN_BATTERY:-30}
 PLACEHOLDER_URL="https://updates.example.invalid/scion/manifest.json"
+REPORT_URL=${REPORT_URL:-https://claudiusthebot.duckdns.org/scion/report}
+CONSENT=${CONSENT:-/cache/scion/report-consent}
+REPORT_Q=${REPORT_Q:-/cache/scion/report-queue}
+REPORT_TMP=${REPORT_TMP:-/tmp/scion-report}
+BOOTLOGS=${BOOTLOGS:-/tmp/scion-boot}
+SCION_REPORT=${SCION_REPORT:-/sbin/scion-report}
 
 say() { printf 'scion: %s\n' "$*"; }
 die() { printf 'scion: error: %s\n' "$*" >&2; result "$*"; exit 1; }
@@ -129,6 +143,12 @@ online() {
 	else
 		say "could not set the clock from the internet (downloads may fail: their certificates look not yet valid)"
 	fi
+	# With the owner's yes (and only then): this boot's report, in the background.
+	if [ "$(consent)" = yes ] && [ ! -e "$REPORT_TMP/sent" ]; then
+		mkdir -p "$REPORT_TMP"
+		"$0" report-send --auto > "$REPORT_TMP/auto.log" 2>&1 < /dev/null &
+		say "crash and boot report: sending (you said yes; Scion settings to change it)"
+	fi
 }
 
 wait_joined() {
@@ -159,13 +179,18 @@ cmd_wifi_scan() {
 		END { for (s in best) printf "%s\t%s\t%s\t%s\n", best[s], fr[s], fl[s], s }' |
 		sort -rn > "$WIFI_TMP/scan"
 	n=0
+	cur=$(cur_ssid)
 	while IFS="$(printf '\t')" read -r sig freq flags ssid; do
 		n=$((n + 1))
-		name=$(printf '%s' "$ssid" | tr "/'\"\\\\%\`\$" '_______')
-		case $flags in *WPA*|*SAE*|*RSN*) lock="" ;; *) lock=" (open)" ;; esac
-		band="2.4 GHz"; [ "$freq" -gt 4000 ] 2>/dev/null && band="5 GHz"
-		printf '%s\n%s\n' "$ssid" "$flags" > "$WIFI_TMP/nets/$name$lock"
-		say "$(printf '%-32s %4s dBm  %s%s' "$name" "$sig" "$band" "$lock")"
+		name=$(printf '%s' "$ssid" | tr "/'\"\\\\%\`\$" '_______' | cut -c1-40)
+		pct=$(awk -v d="$sig" 'BEGIN { p = 2 * (d + 100); if (p > 100) p = 100; if (p < 0) p = 0; printf "%d", p }')
+		band=2.4; [ "$freq" -gt 4000 ] 2>/dev/null && band=5
+		case $flags in *WPA*|*SAE*|*RSN*) lock="" ;; *) lock=", open" ;; esac
+		mark=""; [ "$ssid" = "$cur" ] && [ "$(state)" = COMPLETED ] && mark=", joined"
+		# No % in a label: TWRP would read it as a variable in the join command.
+		label="$name  ($band GHz, signal $pct$lock$mark)"
+		printf '%s\n%s\n' "$ssid" "$flags" > "$WIFI_TMP/nets/$label"
+		say "$label"
 	done < "$WIFI_TMP/scan"
 	[ $n -gt 0 ] || die "no networks found: is Wi-Fi on at the router, and the phone in range?"
 	say "$n networks. Tap one on the Wi-Fi page to join it."
@@ -214,9 +239,13 @@ cmd_wifi_join() {
 			len=${#pass}
 			{ [ "$len" -ge 8 ] && [ "$len" -le 63 ]; } || die "a Wi-Fi passphrase has 8 to 63 characters; this one has $len"
 		fi
-		[ -n "$id" ] || id=$(wpa add_network | tail -1)
+		new=""
+		[ -n "$id" ] || { id=$(wpa add_network | tail -1); new=1; }
 		case $id in ''|*[!0-9]*) die "wpa_supplicant would not add the network" ;; esac
-		wpa set_network "$id" ssid "P\"$ssid\"" | grep -q OK || die "bad network name"
+		if ! wpa set_network "$id" ssid "P\"$ssid\"" | grep -q OK; then
+			[ -n "$new" ] && wpa remove_network "$id" >/dev/null
+			die "wpa_supplicant does not take that network name"
+		fi
 		if [ -n "$pass" ]; then
 			wpa set_network "$id" key_mgmt "WPA-PSK WPA-PSK-SHA256 SAE" >/dev/null
 			wpa set_network "$id" ieee80211w 1 >/dev/null
@@ -528,6 +557,56 @@ cmd_update_install() {
 	say "installed. Reboot > System to start it"
 }
 
+# ---- crash and boot reports (opt-in) ---------------------------------------
+consent() { sed -n '1{s/[^a-z]//g;p;}' "$CONSENT" 2>/dev/null; }
+
+cmd_report_consent() {
+	case ${1:-} in
+	yes|no) ;;
+	*) die "usage: scion-net report-consent yes|no" ;;
+	esac
+	mkdir -p "${CONSENT%/*}" || die "cannot make ${CONSENT%/*}"
+	echo "$1" > "$CONSENT" || die "cannot keep the answer in $CONSENT"
+	if [ "$1" = yes ]; then
+		say "thank you: crash and boot reports are sent when Wi-Fi is connected (scrubbed first; PRIVACY.md)"
+		if [ -n "$(ipv4)" ]; then cmd_report_send; fi
+	else
+		rm -rf "$REPORT_Q"
+		say "no reports are sent (and none is queued). Change it in Scion settings"
+	fi
+}
+
+cmd_report_send() {
+	[ "$(consent)" = yes ] || die "no reports without your yes: Scion settings > Crash reports"
+	mkdir -p "$REPORT_Q" "$REPORT_TMP" || die "cannot make $REPORT_Q"
+	if [ ! -e "$REPORT_TMP/built" ]; then
+		in=$REPORT_TMP/in.log
+		: > "$in"
+		for f in "$BOOTLOGS/proc-reset_reason.txt" "$BOOTLOGS/last_kmsg.txt" "$BOOTLOGS"/pstore/*; do
+			[ -f "$f" ] && cat "$f" >> "$in"
+		done
+		out=$REPORT_Q/$(date +%Y%m%d-%H%M%S).json
+		"$SCION_REPORT" build "$in" "$out" || die "could not build the report"
+		rm -f "$in"
+		: > "$REPORT_TMP/built"
+		say "report built: $(grep -c '^    "' "$out") log lines kept, scrubbed"
+	fi
+	[ "${NET_NOCHECK:-0}" = 1 ] || need_net
+	n=0; bad=0
+	for f in "$REPORT_Q"/*.json; do
+		[ -f "$f" ] || continue
+		code=$(fetch --max-time 60 -o "$REPORT_TMP/resp" -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+			--data-binary "@$f" "$REPORT_URL" 2>/dev/null)
+		case $code in
+		2??) rm -f "$f"; n=$((n + 1)) ;;
+		*) bad=$((bad + 1)); say "the report server said ${code:-nothing} for ${f##*/}: kept, sent next time" ;;
+		esac
+	done
+	: > "$REPORT_TMP/sent"
+	[ $bad -eq 0 ] || die "$n sent, $bad kept for later"
+	say "$n report(s) sent. Thank you"
+}
+
 finish() {
 	rc=$?
 	if [ "$rc" -eq 0 ]; then say "RESULT: OK"; else say "RESULT: FAILED (exit $rc)"; fi
@@ -537,7 +616,7 @@ finish() {
 cmd=${1:-help}
 [ $# -gt 0 ] && shift
 case $cmd in
-help|-h|--help) sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+help|-h|--help) sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 json-flat) json_flat; exit $? ;;
 esac
 trap finish EXIT
@@ -555,5 +634,7 @@ update-url) cmd_update_url "$@" ;;
 update-check) cmd_update_check ;;
 update-download) cmd_update_download ;;
 update-install) cmd_update_install "$@" ;;
+report-consent) cmd_report_consent "$@" ;;
+report-send) cmd_report_send "$@" ;;
 *) echo "scion-net: unknown command $cmd (scion-net help)" >&2; exit 2 ;;
 esac

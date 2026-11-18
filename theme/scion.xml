@@ -41,14 +41,37 @@
 		<variable name="scion_fb_text2_y" value="780"/>
 		<variable name="scion_fb_text3_y" value="840"/>
 		<variable name="scion_fb_text4_y" value="920"/>
-		<variable name="scion_wifi_state_h" value="120"/>
-		<variable name="scion_wifi_list_y" value="440"/>
-		<variable name="scion_wifi_list_h" value="1080"/>
+		<variable name="scion_wifi_state_y" value="290"/>
+		<variable name="scion_wifi_state_h" value="76"/>
+		<variable name="scion_wifi_state2_y" value="410"/>
+		<variable name="scion_wifi_label_y" value="420"/>
+		<variable name="scion_wifi_list_y" value="480"/>
+		<variable name="scion_wifi_list_h" value="1050"/>
 		<variable name="tw_scion_advanced" value="0"/>
+		<!-- 1 once the crash-report question was answered (the answer itself is /cache/scion/report-consent). -->
+		<variable name="tw_scion_report_asked" value="0" persist="1"/>
 		<variable name="tw_scion_pick" value="write"/>
 		<!-- SYSTEM is not Android's here: no "keep system read only?" page at start; it stays read only. -->
 		<variable name="tw_mount_system_ro" value="1" persist="1"/>
 	</variables>
+
+	<styles>
+		<!-- Wi-Fi's status line: a one-row card, no header, no icon, no highlight. -->
+		<style name="scion_status">
+			<highlight color="%scion_header_color%"/>
+			<separator color="%scion_header_color%" height="0"/>
+			<background color="%scion_header_color%"/>
+			<font resource="font_m" spacing="24" color="%text_color%" highlightcolor="%text_color%"/>
+		</style>
+		<!-- Wi-Fi's networks: rows like the Scion lists (advanced_listbox's chevron), no header. -->
+		<style name="scion_netlist">
+			<highlight color="%fileselector_highlight_color%"/>
+			<fastscroll linecolor="%fileselector_linecolor%" rectcolor="%accent_color%" w="%fastscroll_w%" linew="%fastscroll_linew%" rectw="%fastscroll_rectw%" recth="%fastscroll_recth%"/>
+			<separator color="%fileselector_linecolor%" height="%fileselector_separatorheight%"/>
+			<background color="%background_color%"/>
+			<font resource="font_m" spacing="66" color="%text_color%" highlightcolor="%accent_color%"/>
+		</style>
+	</styles>
 
 	<pages>
 		<page name="main2">
@@ -988,6 +1011,19 @@
 						<action function="page">scion_wifi</action>
 					</actions>
 				</listitem>
+				<listitem name="Crash reports: your answer">
+					<actions>
+						<action function="page">scion_report_ask</action>
+					</actions>
+				</listitem>
+				<listitem name="Send a crash report now">
+					<actions>
+						<action function="set">tw_back=scion_settings</action>
+						<action function="set">tw_action_text1=Crash report</action>
+						<action function="set">tw_action_param=/sbin/scion-net report-send</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
 				<listitem name="Show the write policy">
 					<actions>
 						<action function="set">tw_back=scion_settings</action>
@@ -1043,18 +1079,24 @@
 
 			<text style="text_m">
 				<placement x="%col1_x_header%" y="%row4_header_y%"/>
-				<text>Scan, then tap a network to join it</text>
+				<text>Tap a network to join it</text>
 			</text>
 
-			<fileselector>
-				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_wifi_state_h%"/>
+			<!-- The status line: one row, no header, no icon (tap it for details). -->
+			<fileselector style="scion_status">
+				<placement x="%indent%" y="%scion_wifi_state_y%" w="%content_width%" h="%scion_wifi_state_h%"/>
 				<filter folders="0" files="1"/>
 				<path name="tw_scion_wifi_statedir" default="/tmp/scion-wifi/state"/>
 				<data name="tw_scion_wifi_statefile"/>
 				<selection name="tw_scion_wifi_statename"/>
 			</fileselector>
 
-			<fileselector>
+			<text style="text_m_accent">
+				<placement x="%indent%" y="%scion_wifi_label_y%"/>
+				<text>Networks</text>
+			</text>
+
+			<fileselector style="scion_netlist">
 				<placement x="%indent%" y="%scion_wifi_list_y%" w="%content_width%" h="%scion_wifi_list_h%"/>
 				<filter folders="0" files="1"/>
 				<path name="tw_scion_wifi_dir" default="/tmp/scion-wifi/nets"/>
@@ -1081,7 +1123,7 @@
 				</actions>
 			</action>
 
-			<button style="button_quarter_width">
+			<button style="main_button_half_height">
 				<placement x="%indent%" y="%row21a_y%"/>
 				<text>Scan</text>
 				<actions>
@@ -1092,31 +1134,9 @@
 				</actions>
 			</button>
 
-			<button style="button_quarter_width">
-				<placement x="%btn4_col2_x%" y="%row21a_y%"/>
-				<text>Connect</text>
-				<actions>
-					<action function="set">tw_back=scion_wifi</action>
-					<action function="set">tw_action_text1=Wi-Fi: connect</action>
-					<action function="set">tw_action_param=/sbin/scion-net wifi-connect</action>
-					<action function="page">scion_go</action>
-				</actions>
-			</button>
-
-			<button style="button_quarter_width">
-				<placement x="%btn4_col3_x%" y="%row21a_y%"/>
-				<text>Status</text>
-				<actions>
-					<action function="set">tw_back=scion_wifi</action>
-					<action function="set">tw_action_text1=Wi-Fi status</action>
-					<action function="set">tw_action_param=/sbin/scion-net wifi-status</action>
-					<action function="page">scion_go</action>
-				</actions>
-			</button>
-
-			<button style="button_quarter_width">
-				<placement x="%btn4_col4_x%" y="%row21a_y%"/>
-				<text>Off</text>
+			<button style="main_button_half_height">
+				<placement x="%center_x%" y="%row21a_y%"/>
+				<text>Wi-Fi off</text>
 				<actions>
 					<action function="set">tw_back=scion_wifi</action>
 					<action function="set">tw_action_text1=Wi-Fi off</action>
@@ -1124,7 +1144,6 @@
 					<action function="page">scion_go</action>
 				</actions>
 			</button>
-
 
 			<action>
 				<touch key="back"/>
@@ -1286,16 +1305,16 @@
 				<text>%tw_scion_wifi_name%</text>
 			</text>
 
-			<fileselector>
-				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_wifi_state_h%"/>
+			<fileselector style="scion_status">
+				<placement x="%indent%" y="%scion_wifi_state_y%" w="%content_width%" h="%scion_wifi_state_h%"/>
 				<filter folders="0" files="1"/>
 				<path name="tw_scion_wifi_resultdir" default="/tmp/scion-wifi/result"/>
 				<data name="tw_scion_wifi_resultfile"/>
 				<selection name="tw_scion_wifi_resultname"/>
 			</fileselector>
 
-			<fileselector>
-				<placement x="%indent%" y="%scion_wifi_list_y%" w="%content_width%" h="%scion_wifi_state_h%"/>
+			<fileselector style="scion_status">
+				<placement x="%indent%" y="%scion_wifi_state2_y%" w="%content_width%" h="%scion_wifi_state_h%"/>
 				<filter folders="0" files="1"/>
 				<path name="tw_scion_wifi_statedir" default="/tmp/scion-wifi/state"/>
 				<data name="tw_scion_wifi_statefile2"/>
@@ -1303,9 +1322,18 @@
 			</fileselector>
 
 			<button style="main_button_half_height">
+				<condition var1="tw_scion_report_asked" var2="1"/>
 				<placement x="%indent%" y="%row21a_y%"/>
 				<text>{@back_btn=Back}</text>
 				<action function="page">scion_wifi</action>
+			</button>
+
+			<!-- The first time Wi-Fi is up: the crash-report question, once. -->
+			<button style="main_button_half_height">
+				<condition var1="tw_scion_report_asked" op="!=" var2="1"/>
+				<placement x="%indent%" y="%row21a_y%"/>
+				<text>Next</text>
+				<action function="page">scion_report_ask</action>
 			</button>
 
 			<button style="main_button_half_height">
@@ -1315,6 +1343,90 @@
 					<action function="set">tw_back=scion_wifi</action>
 					<action function="set">tw_action_text1=Wi-Fi</action>
 					<action function="set">tw_action_param=cat /tmp/scion-wifi/join.log</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</button>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">scion_wifi</action>
+			</action>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
+		</page>
+
+		<!-- Opt-in crash and boot reports (PRIVACY.md). Asked once, after Wi-Fi first
+		     works; changed in Scion settings. Nothing is sent without Yes. -->
+		<page name="scion_report_ask">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Help Scion?</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Crash and boot reports</text>
+			</text>
+
+			<text style="text_m_accent">
+				<placement x="%indent%" y="%row2_y%"/>
+				<text>Send anonymous crash and boot reports?</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%indent%" y="%row4_y%"/>
+				<text>A report: what crashed, the build, the</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%indent%" y="%row5_y%"/>
+				<text>model, a random install ID. Nothing else.</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%indent%" y="%row7_y%"/>
+				<text>Serials, IMEI, addresses, network names</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%indent%" y="%row8_y%"/>
+				<text>are removed on the phone, before sending.</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%indent%" y="%row10_y%"/>
+				<text>Change it any time in Scion settings.</text>
+			</text>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%row21a_y%"/>
+				<text>Yes, send</text>
+				<actions>
+					<action function="set">tw_scion_report_asked=1</action>
+					<action function="set">tw_back=scion_wifi</action>
+					<action function="set">tw_action_text1=Crash reports</action>
+					<action function="set">tw_action_param=/sbin/scion-net report-consent yes</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%center_x%" y="%row21a_y%"/>
+				<text>No</text>
+				<actions>
+					<action function="set">tw_scion_report_asked=1</action>
+					<action function="set">tw_back=scion_wifi</action>
+					<action function="set">tw_action_text1=Crash reports</action>
+					<action function="set">tw_action_param=/sbin/scion-net report-consent no</action>
 					<action function="page">scion_go</action>
 				</actions>
 			</button>
