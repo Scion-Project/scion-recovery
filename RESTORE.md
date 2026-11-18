@@ -38,6 +38,10 @@ TWRP's GUI does the same: Install > Install Image > pick scion-recovery.img > Re
 Once in Scion recovery: `adb shell scion facts`, and the previous run's logs are already in
 `/tmp/scion-boot` (`adb pull /tmp/scion-boot`). What to try next, in order: TESTING.md.
 
+**Keep MTP enabled** (Mount page, or TWRP's MTP switch) whenever you use this recovery. TWRP's MTP start
+logs `E:[MTP] Failed to start usb driver!`; that is expected, because the same start brings up adb's USB
+gadget. With MTP off at start, the phone has no USB connection, and adb cannot be reached.
+
 ## B. Flash Scion recovery from a Mac with heimdall (Download mode)
 
     heimdall detect
