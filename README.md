@@ -87,7 +87,7 @@ root is about 32 GiB with 20 GiB used), or send it with fastboot.
 
 ### Wi-Fi and Install (recovery 5, in testing)
 
-Recovery 5 is in progress and has not been run on a phone.
+Recovery 5 runs on phone 2: scan and join work (it reached the internet over 5 GHz on 18 November); the Install page is in testing.
 
 - **Wi-Fi** scans for networks and joins one. The passphrases are saved on the phone, in `/cache`.
 - **Install** downloads an update over Wi-Fi and verifies it.
