@@ -60,6 +60,8 @@ secure firmware. Download mode lives in the boot loader, which nothing here writ
 | Back up > Copy EFS | `copy-efs [DIR]` | files: EFS, SEC_EFS, CPEFS, read only |
 | Save logs | `logs`, `pull` | files in `/tmp` |
 | iOS disks | `mountvar`, `umountvar`, `inspect`, `fsck` | nothing (read only; `fsck` is apfsck, which reports) |
+| Install iOS > Over Wi-Fi | `scion-net update-check\|update-download\|update-install --yes` | USERDATA, BOOT (through `scion`), after a swipe |
+| Scion settings > Wi-Fi | `scion-net wifi-scan\|wifi-join\|wifi-status\|wifi-off` | /cache/scion/wifi (saved networks, mode 600) |
 | Phone info | `facts` | nothing: model, boot loader, battery, memory, partitions, storage |
 | Scion settings | `policy`, the Advanced switch, the log of writes | nothing |
 

@@ -1,0 +1,559 @@
+#!/sbin/sh
+# SPDX-License-Identifier: MIT-0
+# scion-net: Wi-Fi and "install iOS over Wi-Fi" for Scion recovery (Galaxy S9).
+#
+#   scion-net wifi-scan             networks in range (and one file each in
+#                                   /tmp/scion-wifi/nets for the GUI's list)
+#   scion-net wifi-join NET [PASS]  join NET (a file from wifi-scan, or a name);
+#                                   PASS once, then it is saved (mode 600, /cache)
+#   scion-net wifi-connect          start Wi-Fi and join a saved network
+#   scion-net wifi-status           connected or not, address, internet
+#   scion-net wifi-off              stop Wi-Fi
+#   scion-net wifi-forget           forget every saved network
+#   scion-net update-url [URL]      show (or set) where the update manifest is
+#   scion-net update-check          fetch the manifest and say what it offers
+#   scion-net update-download       download it (resumes), check its sha256
+#   scion-net update-install --yes  write it: the root to USERDATA, then BOOT,
+#                                   through /sbin/scion (its write policy)
+#
+# Wi-Fi: the S9's Broadcom driver (bcmdhd) is in the recovery kernel; its
+# firmware is on VENDOR, which is mounted READ ONLY for a moment to copy it to
+# the ramdisk's /vendor. wpa_supplicant, wpa_cli, curl and busybox (udhcpc,
+# ntpd) are static builds in /scion/bin (third_party/wifi). Nothing here
+# writes a partition except through /sbin/scion (update-install). Each command
+# ends with "scion: RESULT: OK" or "scion: RESULT: FAILED".
+
+set -u
+PATH=/sbin:/system/bin:/bin:/usr/bin:$PATH
+export PATH
+
+NET_BIN=${NET_BIN:-/scion/bin}
+WPA_CONF_DIR=${WPA_CONF_DIR:-/cache/scion/wifi}
+WPA_CONF=$WPA_CONF_DIR/wpa_supplicant.conf
+WPA_CTRL=${WPA_CTRL:-/tmp/scion-wpa}
+WIFI_TMP=${WIFI_TMP:-/tmp/scion-wifi}
+IFACE=${IFACE:-wlan0}
+DHD=${DHD:-/sys/module/dhd/parameters}
+VENDOR_DEV=${VENDOR_DEV:-/dev/block/by-name/VENDOR}
+FW_DIR=${FW_DIR:-/vendor/firmware}
+CLM_DIR=${CLM_DIR:-/vendor/etc/wifi}
+UPD_URL_FILE=${UPD_URL_FILE:-/cache/scion/update-url}
+UPD_TMP=${UPD_TMP:-/tmp/scion-update}
+UPD_STATE=${UPD_STATE:-/cache/scion/update-staged}
+# Where downloads go: the SD card or a USB drive; /cache only for a small BOOT
+# image. Never USERDATA (/data, /sdcard): that is what gets written.
+UPD_STORAGE=${UPD_STORAGE:-"/external_sd /usb-otg"}
+UPD_SMALL=${UPD_SMALL:-/cache}
+CURL=${CURL:-$NET_BIN/curl}
+CACERT=${CACERT:-/etc/scion/cacert.pem}
+BB=${BB:-$NET_BIN/busybox}
+SCION=${SCION:-/sbin/scion}
+BATTERY=${BATTERY:-/sys/class/power_supply/battery}
+MIN_BATTERY=${MIN_BATTERY:-30}
+PLACEHOLDER_URL="https://updates.example.invalid/scion/manifest.json"
+
+say() { printf 'scion: %s\n' "$*"; }
+die() { printf 'scion: error: %s\n' "$*" >&2; result "$*"; exit 1; }
+# result TEXT: for wifi-join, the GUI's result line (a file named TEXT in $WIFI_TMP/result).
+result() {
+	[ "${JOIN_RESULT:-0}" = 1 ] || return 0
+	mkdir -p "$WIFI_TMP/result" && rm -f "$WIFI_TMP/result"/*
+	: > "$WIFI_TMP/result/$(printf '%s' "$1" | tr "/'\"\\\\%\`\$" '_______' | cut -c1-150)"
+}
+human() { awk -v a="$1" 'BEGIN { split("B KiB MiB GiB TiB", u); i = 1; while (a >= 1024 && i < 5) { a /= 1024; i++ } printf "%.1f %s", a, u[i] }'; }
+big_le() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 <= b + 0) }'; }
+fsize() { if [ -f "$1" ]; then wc -c < "$1" | tr -d ' '; else echo 0; fi; }
+sha() { sha256sum | cut -c1-64; }
+
+# ---- Wi-Fi ------------------------------------------------------------------
+wpa() { "$NET_BIN/wpa_cli" -p "$WPA_CTRL" -i "$IFACE" "$@"; }
+wpa_running() { [ -S "$WPA_CTRL/$IFACE" ] && wpa ping 2>/dev/null | grep -q PONG; }
+
+# The firmware the driver asks for (bcmdhd_sta.bin_b0/_b2, nvram.txt_*, the
+# CLM blob in /vendor/etc/wifi), copied from VENDOR mounted read only.
+firmware() {
+	if [ ! -f "$FW_DIR/bcmdhd_sta.bin_b2" ] || [ ! -f "$CLM_DIR/bcmdhd_clm.blob" ]; then
+		[ -e "$VENDOR_DEV" ] || die "no VENDOR partition: the Wi-Fi firmware lives there"
+		m=$WIFI_TMP/vendor
+		mkdir -p "$m" "$FW_DIR" "$CLM_DIR" || die "cannot make $FW_DIR"
+		grep -q " $m " /proc/mounts || mount -t ext4 -o ro "$VENDOR_DEV" "$m" 2>/dev/null ||
+			die "cannot read VENDOR (read only) for the Wi-Fi firmware: is Android's VENDOR still on the phone?"
+		cp "$m"/firmware/bcmdhd_sta.bin_b* "$m"/firmware/nvram.txt_* "$FW_DIR/" 2>/dev/null
+		cp "$m/firmware/bcmdhd_clm.blob" "$CLM_DIR/" 2>/dev/null
+		umount "$m"
+		[ -f "$FW_DIR/bcmdhd_sta.bin_b2" ] || die "VENDOR has no Wi-Fi firmware (firmware/bcmdhd_sta.bin_b2)"
+	fi
+	[ -d "$DHD" ] || die "this kernel has no Wi-Fi driver (no $DHD)"
+	printf '%s' "$FW_DIR/bcmdhd_sta.bin" > "$DHD/firmware_path"
+	printf '%s' "$FW_DIR/nvram.txt" > "$DHD/nvram_path"
+}
+
+wifi_up() {
+	mkdir -p "$WIFI_TMP" "$WPA_CTRL"
+	[ -d "/sys/class/net/$IFACE" ] || die "no Wi-Fi device ($IFACE)"
+	firmware
+	if ! ip link show "$IFACE" | grep -q '[<,]UP[,>]'; then
+		say "starting Wi-Fi (loading its firmware)"
+		ip link set "$IFACE" up || die "Wi-Fi did not start: see dmesg | grep dhd"
+		sleep 2
+	fi
+	if ! wpa_running; then
+		umask 077
+		mkdir -p "$WPA_CONF_DIR" && chmod 700 "$WPA_CONF_DIR" "${WPA_CONF_DIR%/*}" 2>/dev/null
+		[ -f "$WPA_CONF" ] || printf 'ctrl_interface=%s\nupdate_config=1\n' "$WPA_CTRL" > "$WPA_CONF"
+		chmod 600 "$WPA_CONF"
+		rm -f "$WPA_CTRL/$IFACE"
+		"$NET_BIN/wpa_supplicant" -B -P "$WIFI_TMP/wpa.pid" -i "$IFACE" -D nl80211 -C "$WPA_CTRL" \
+			-c "$WPA_CONF" </dev/null >/dev/null 2>&1 || die "wpa_supplicant did not start"
+		n=0
+		while ! wpa_running; do
+			n=$((n + 1)); [ $n -gt 10 ] && die "wpa_supplicant did not answer"
+			sleep 1
+		done
+	fi
+}
+
+state() { wpa status 2>/dev/null | sed -n 's/^wpa_state=//p'; }
+cur_ssid() { wpa status 2>/dev/null | sed -n 's/^ssid=//p'; }
+ipv4() { ip -4 addr show "$IFACE" 2>/dev/null | awk '/inet / { sub(/\/.*/, "", $2); print $2; exit }'; }
+
+# The address (udhcpc, /sbin/scion-udhcpc applies it), then the clock (TLS
+# needs it: the S9 starts recovery in 2018), then DNS works from the lease.
+online() {
+	say "asking the network for an address"
+	"$BB" udhcpc -i "$IFACE" -s /sbin/scion-udhcpc -q -n -t 6 -T 3 >/dev/null 2>&1 ||
+		die "no address from the network (DHCP): is the router handing them out?"
+	say "address $(ipv4)"
+	if "$BB" ntpd -n -q -p time.cloudflare.com -p pool.ntp.org >/dev/null 2>&1; then
+		say "clock set: $(date -u '+%Y-%m-%d %H:%M UTC')"
+	else
+		say "could not set the clock from the internet (downloads may fail: their certificates look not yet valid)"
+	fi
+}
+
+wait_joined() {
+	n=0
+	while [ "$(state)" != COMPLETED ]; do
+		n=$((n + 1))
+		if [ $n -gt "${1:-30}" ]; then
+			s=$(state)
+			case $s in
+			*HANDSHAKE*|DISCONNECTED|SCANNING) die "could not join $2 (state $s): check the passphrase, and that the network is in range" ;;
+			*) die "could not join $2 (state ${s:-unknown})" ;;
+			esac
+		fi
+		sleep 1
+	done
+}
+
+# wifi-scan: also one file per network in $WIFI_TMP/nets: its name is what the
+# GUI lists, line 1 the SSID as wpa_cli prints it (printf-escaped), line 2 its
+# flags. The strongest of each SSID; hidden ones are left out.
+cmd_wifi_scan() {
+	wifi_up
+	wpa scan >/dev/null
+	sleep 5
+	rm -rf "$WIFI_TMP/nets" && mkdir -p "$WIFI_TMP/nets"
+	wpa scan_results | awk -F '\t' 'NR > 1 && $5 != "" && $5 !~ /^(\\x00)+$/ {
+		if (!($5 in best) || $3 + 0 > best[$5] + 0) { best[$5] = $3; fl[$5] = $4; fr[$5] = $2 } }
+		END { for (s in best) printf "%s\t%s\t%s\t%s\n", best[s], fr[s], fl[s], s }' |
+		sort -rn > "$WIFI_TMP/scan"
+	n=0
+	while IFS="$(printf '\t')" read -r sig freq flags ssid; do
+		n=$((n + 1))
+		name=$(printf '%s' "$ssid" | tr "/'\"\\\\%\`\$" '_______')
+		case $flags in *WPA*|*SAE*|*RSN*) lock="" ;; *) lock=" (open)" ;; esac
+		band="2.4 GHz"; [ "$freq" -gt 4000 ] 2>/dev/null && band="5 GHz"
+		printf '%s\n%s\n' "$ssid" "$flags" > "$WIFI_TMP/nets/$name$lock"
+		say "$(printf '%-32s %4s dBm  %s%s' "$name" "$sig" "$band" "$lock")"
+	done < "$WIFI_TMP/scan"
+	[ $n -gt 0 ] || die "no networks found: is Wi-Fi on at the router, and the phone in range?"
+	say "$n networks. Tap one on the Wi-Fi page to join it."
+	status_file
+}
+
+# net_id SSID: the saved network's id for SSID (as wpa_cli prints SSIDs).
+net_id() { wpa list_networks | awk -F '\t' -v s="$1" 'NR > 1 && $2 == s { print $1; exit }'; }
+
+# Take the passphrase back out of TWRP's log (/tmp/recovery.log): the GUI's
+# command line, which TWRP logs, holds it. Overwritten in place, byte for byte.
+scrub() {
+	[ -n "$1" ] || return 0
+	log=${SCRUB_LOG:-/tmp/recovery.log}
+	[ -f "$log" ] || return 0
+	SCRUB=$1 LC_ALL=C awk 'BEGIN { p = ENVIRON["SCRUB"]; n = length(p) }
+		{ s = $0; o = 0
+		  while ((i = index(s, p)) > 0) { print off + o + i - 1; o += i - 1 + n; s = substr(s, i + n) }
+		  off += length($0) + 1 }' "$log" > "$WIFI_TMP/scrub.off" 2>/dev/null
+	stars=$(awk -v n="${#1}" 'BEGIN { while (n-- > 0) printf "*" }')
+	while read -r o; do
+		printf '%s' "$stars" | dd of="$log" bs=1 seek="$o" conv=notrunc 2>/dev/null
+	done < "$WIFI_TMP/scrub.off"
+	rm -f "$WIFI_TMP/scrub.off"
+	return 0
+}
+
+cmd_wifi_join() {
+	net=${1:-}; pass=${2:-}
+	mkdir -p "$WIFI_TMP"
+	JOIN_RESULT=1
+	result "Joining..."
+	scrub "$pass"
+	[ -n "$net" ] || die "usage: scion-net wifi-join NETWORK [PASSPHRASE]"
+	if [ -f "$net" ]; then
+		ssid=$(sed -n 1p "$net"); flags=$(sed -n 2p "$net")
+	else
+		ssid=$net; flags=""
+	fi
+	wifi_up
+	case $flags in *WPA*|*SAE*|*RSN*) secure=1 ;; '') secure=2 ;; *) secure=0 ;; esac
+	id=$(net_id "$ssid")
+	if [ -n "$pass" ] || [ $secure = 0 ] || [ -z "$id" ]; then
+		if [ $secure = 1 ] && [ -z "$pass" ]; then die "$ssid needs its passphrase"; fi
+		if [ -n "$pass" ]; then
+			len=${#pass}
+			{ [ "$len" -ge 8 ] && [ "$len" -le 63 ]; } || die "a Wi-Fi passphrase has 8 to 63 characters; this one has $len"
+		fi
+		[ -n "$id" ] || id=$(wpa add_network | tail -1)
+		case $id in ''|*[!0-9]*) die "wpa_supplicant would not add the network" ;; esac
+		wpa set_network "$id" ssid "P\"$ssid\"" | grep -q OK || die "bad network name"
+		if [ -n "$pass" ]; then
+			wpa set_network "$id" key_mgmt "WPA-PSK WPA-PSK-SHA256 SAE" >/dev/null
+			wpa set_network "$id" ieee80211w 1 >/dev/null
+			wpa set_network "$id" psk "\"$pass\"" | grep -q OK || die "wpa_supplicant refused the passphrase"
+		else
+			wpa set_network "$id" key_mgmt NONE >/dev/null
+		fi
+	fi
+	say "joining $ssid"
+	wpa select_network "$id" >/dev/null
+	wait_joined 30 "$ssid"
+	wpa enable_network all >/dev/null
+	wpa save_config >/dev/null && chmod 600 "$WPA_CONF"
+	say "joined $ssid (saved: it is joined by itself next time)"
+	online
+	cmd_wifi_status
+	result "Joined $(printf '%s' "$ssid" | tr "/'\"\\\\%\`\$" '_______'), address $(ipv4)"
+}
+
+cmd_wifi_connect() {
+	wifi_up
+	[ -n "$(wpa list_networks | awk 'NR > 1')" ] || die "no saved network: scan, then tap one to join it"
+	if [ "$(state)" != COMPLETED ]; then
+		say "joining a saved network"
+		wpa reconnect >/dev/null
+		wait_joined 30 "a saved network"
+	fi
+	[ -n "$(ipv4)" ] || online
+	cmd_wifi_status
+}
+
+# The GUI's status line: one file in $WIFI_TMP/state, named what to show.
+status_file() {
+	mkdir -p "$WIFI_TMP/state"
+	rm -f "$WIFI_TMP/state"/*
+	if [ "$(state)" = COMPLETED ] && [ -n "$(ipv4)" ]; then
+		t="Connected: $(cur_ssid | tr "/'\"\\\\%\`\$" '_______'), $(ipv4)"
+	elif [ "$(state)" = COMPLETED ]; then
+		t="Joined $(cur_ssid | tr "/'\"\\\\%\`\$" '_______'), no address yet"
+	elif wpa_running; then
+		t="Not connected"
+	else
+		t="Wi-Fi is off"
+	fi
+	: > "$WIFI_TMP/state/$t"
+}
+
+cmd_wifi_status() {
+	if ! wpa_running; then
+		say "Wi-Fi is off"
+		status_file
+		return 0
+	fi
+	s=$(state)
+	if [ "$s" = COMPLETED ]; then
+		say "connected to $(cur_ssid) ($(wpa status | sed -n 's/^freq=//p') MHz)"
+	else
+		say "not connected (${s:-?})"
+	fi
+	a=$(ipv4)
+	say "address: ${a:-none}"
+	if [ -n "$a" ]; then
+		if ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1; then say "internet: yes"; else say "internet: no answer from 1.1.1.1"; fi
+	fi
+	status_file
+}
+
+cmd_wifi_off() {
+	[ -f "$WIFI_TMP/wpa.pid" ] && kill "$(cat "$WIFI_TMP/wpa.pid")" 2>/dev/null
+	rm -f "$WIFI_TMP/wpa.pid"
+	ip addr flush dev "$IFACE" 2>/dev/null
+	ip link set "$IFACE" down 2>/dev/null
+	say "Wi-Fi is off"
+	status_file
+}
+
+cmd_wifi_forget() {
+	cmd_wifi_off
+	rm -f "$WPA_CONF"
+	say "saved networks forgotten"
+}
+
+# ---- the update manifest ----------------------------------------------------
+# json_flat: a JSON document on stdin -> "path=value" lines (objects by dots,
+# arrays by index; strings unescaped except \uXXXX). Enough for the manifest:
+#   {"name": "...", "version": "...", "test": false,
+#    "root": {"url": "https://...", "sha256": "<64 hex>", "size": 12345},
+#    "boot": {"url": "https://...", "sha256": "<64 hex>", "size": 12345}}
+json_flat() {
+	tr -d '\r' | awk '
+	BEGIN { RS = "\001" }
+	{
+		s = $0; n = length(s); i = 1; depth = 0; key = ""; expect_key = 0
+		while (i <= n) {
+			c = substr(s, i, 1)
+			if (c ~ /[ \t\n,:]/) {
+				if (c == ",") { if (type[depth] == "a") idx[depth]++; else expect_key = 1 }
+				i++; continue
+			}
+			if (c == "{" || c == "[") {
+				p = (depth > 0) ? path(depth) : ""
+				depth++; type[depth] = (c == "{") ? "o" : "a"; idx[depth] = 0; pre[depth] = p
+				expect_key = (c == "{"); i++; continue
+			}
+			if (c == "}" || c == "]") { depth--; i++; continue }
+			if (c == "\"") {
+				v = ""; i++
+				while (i <= n) {
+					c = substr(s, i, 1)
+					if (c == "\\") {
+						e = substr(s, i + 1, 1); i += 2
+						if (e == "n") v = v "\n"; else if (e == "t") v = v "\t"; else if (e == "u") { v = v "?"; i += 4 } else v = v e
+						continue
+					}
+					if (c == "\"") { i++; break }
+					v = v c; i++
+				}
+				if (type[depth] == "o" && expect_key) { cur[depth] = v; expect_key = 0; continue }
+				print path(depth) "=" v; continue
+			}
+			v = ""
+			while (i <= n && substr(s, i, 1) !~ /[] \t\n,}]/) { v = v substr(s, i, 1); i++ }
+			print path(depth) "=" v
+		}
+	}
+	function path(d,   k) {
+		k = (type[d] == "a") ? idx[d] : cur[d]
+		return (pre[d] == "") ? k : pre[d] "." k
+	}'
+}
+
+mget() { sed -n "s/^$1=//p" "$UPD_TMP/manifest.flat" | head -1; }
+
+update_url() {
+	u=$(sed -n '1{s/[[:space:]]//g;p;}' "$UPD_URL_FILE" 2>/dev/null)
+	if [ -z "$u" ]; then
+		mkdir -p "${UPD_URL_FILE%/*}"
+		echo "$PLACEHOLDER_URL" > "$UPD_URL_FILE"
+		u=$PLACEHOLDER_URL
+	fi
+	echo "$u"
+}
+
+cmd_update_url() {
+	if [ -n "${1:-}" ]; then
+		case $1 in https://*) ;; *) die "the update address must start with https://" ;; esac
+		mkdir -p "${UPD_URL_FILE%/*}" && echo "$1" > "$UPD_URL_FILE"
+	fi
+	u=$(update_url)
+	say "updates come from: $u"
+	[ "$u" = "$PLACEHOLDER_URL" ] && say "that is a placeholder: put the real address in $UPD_URL_FILE (adb shell scion-net update-url https://...)"
+	return 0
+}
+
+# need_net: online, or joins a saved network first (so step 2 just works).
+need_net() {
+	if [ -z "$(ipv4)" ] || ! ip route 2>/dev/null | grep -q '^default'; then
+		grep -q '^network=' "$WPA_CONF" 2>/dev/null || die "no Wi-Fi connection: do step 1 (Wi-Fi) first and join a network"
+		say "not online yet: joining the saved Wi-Fi network"
+		wifi_up
+		if [ "$(state)" != COMPLETED ]; then wpa reconnect >/dev/null; wait_joined 30 "the saved network"; fi
+		online
+	fi
+}
+
+# boot: at start-up (init, scion_net service): the GUI's folders, "Wi-Fi is off".
+cmd_boot() {
+	mkdir -p "$WIFI_TMP/nets" "$WIFI_TMP/state" "$WIFI_TMP/result"
+	status_file
+}
+
+fetch() { "$CURL" -fsSL --cacert "$CACERT" --connect-timeout 15 "$@"; }
+
+cmd_update_check() {
+	u=$(update_url)
+	[ "$u" = "$PLACEHOLDER_URL" ] && die "no update address set yet: put it in $UPD_URL_FILE (scion-net update-url https://...)"
+	[ "${NET_NOCHECK:-0}" = 1 ] || need_net
+	mkdir -p "$UPD_TMP"
+	rm -f "$UPD_TMP/manifest.json" "$UPD_TMP/manifest.flat"
+	say "asking $u"
+	fetch --max-time 60 -o "$UPD_TMP/manifest.json" "$u" || die "could not get the update list from $u (no internet, or the address is wrong)"
+	json_flat < "$UPD_TMP/manifest.json" > "$UPD_TMP/manifest.flat"
+	[ -n "$(mget name)$(mget version)" ] || die "that address did not give a Scion update list"
+	parts=""
+	for p in root boot; do
+		url=$(mget "$p.url"); [ -n "$url" ] || continue
+		h=$(mget "$p.sha256" | tr 'A-F' 'a-f'); sz=$(mget "$p.size")
+		case $url in https://*|http://127.0.0.1*|http://localhost*) ;; *) die "the update list's $p address is not https: refusing it" ;; esac
+		printf '%s' "$h" | grep -q '^[0-9a-f]\{64\}$' || die "the update list's $p has no proper sha256: refusing it"
+		case $sz in ''|*[!0-9]*) die "the update list's $p has no size: refusing it" ;; esac
+		parts="$parts $p"
+		say "  $p image: $(human "$sz")"
+	done
+	[ -n "$parts" ] || die "the update list names no image"
+	echo "$parts" > "$UPD_TMP/parts"
+	say "update: $(mget name) $(mget version)"
+	n=$(mget notes); [ -n "$n" ] && say "notes: $n"
+	[ "$(mget test)" = true ] && say "this is a TEST update: it can be downloaded and checked, never installed"
+	say "next: Download and check"
+}
+
+batt_ok() {
+	c=$(cat "$BATTERY/capacity" 2>/dev/null); st=$(cat "$BATTERY/status" 2>/dev/null)
+	case $st in Charging|Full) return 0 ;; esac
+	case $c in ''|*[!0-9]*) return 0 ;; esac
+	[ "$c" -ge "$MIN_BATTERY" ] || die "battery at $c% and not charging: plug the phone in (or charge it to $MIN_BATTERY%) first"
+}
+
+# where_to BYTES PART: a directory with room for it (never USERDATA).
+where_to() {
+	for s in $UPD_STORAGE; do
+		[ -d "$s" ] || continue
+		if [ "${UPD_ANYDIR:-0}" != 1 ] && ! grep -q " $s " /proc/mounts 2>/dev/null; then continue; fi
+		d=$s/scion/update; mkdir -p "$d" 2>/dev/null || continue
+		echo "$d"; return 0
+	done
+	if [ "$2" = boot ] && [ -d "$UPD_SMALL" ]; then
+		d=$UPD_SMALL/scion/update; mkdir -p "$d" && { echo "$d"; return 0; }
+	fi
+	return 1
+}
+
+free_bytes() { df -k "$1" 2>/dev/null | awk 'NR > 1 { f = $(NF - 2) } END { printf "%.0f", f * 1024 }'; }
+
+# get PART: download one image of the manifest to its staging file, resuming
+# a .part, then check its size and sha256. Prints the file's path last.
+get() {
+	p=$1
+	url=$(mget "$p.url"); want=$(mget "$p.sha256" | tr 'A-F' 'a-f'); sz=$(mget "$p.size")
+	d=$(where_to "$sz" "$p") || die "nowhere to put the $p image ($(human "$sz")): insert an SD card or USB drive (exFAT)"
+	f=$d/$p-$(printf '%s' "$want" | cut -c1-12).img
+	if [ -f "$f" ] && [ "$(fsize "$f")" = "$sz" ] && [ "$(cut -c1-64 "$f.sha256" 2>/dev/null)" = "$want" ]; then
+		say "$p image already downloaded and checked: $f"
+		echo "$p $f" >> "$UPD_TMP/staged"
+		return 0
+	fi
+	have=$(fsize "$f.part")
+	big_le "$have" "$sz" || { rm -f "$f.part"; have=0; }
+	need=$(awk -v a="$sz" -v b="$have" 'BEGIN { printf "%.0f", a - b + 16777216 }')
+	free=$(free_bytes "$d")
+	big_le "$need" "${free:-0}" || die "$d has $(human "${free:-0}") free; the $p image needs $(human "$need") more"
+	case $(df -T "$d" 2>/dev/null | awk 'NR > 1 { print $2 }') in
+	vfat|msdos) big_le "$sz" 4294967295 || die "$d is FAT32, which holds files up to 4 GiB; the $p image is $(human "$sz"): use exFAT" ;;
+	esac
+	if [ "$have" = "$sz" ]; then
+		say "the $p image is all here; checking it"
+	else
+		[ "$have" -gt 0 ] && say "resuming the $p image at $(human "$have")"
+		say "downloading the $p image ($(human "$sz")) to $f"
+		fetch --retry 5 --retry-delay 3 -C - -o "$f.part" "$url" 2> "$UPD_TMP/curl.err" &
+		pid=$!
+		t=0
+		while kill -0 "$pid" 2>/dev/null; do
+			sleep 1; t=$((t + 1))
+			if [ $((t % 5)) -eq 0 ]; then
+				h=$(fsize "$f.part")
+				say "$p: $(human "$h") of $(human "$sz") ($(awk -v a="$h" -v b="$sz" 'BEGIN { printf "%d", b ? a * 100 / b : 0 }') %)"
+			fi
+		done
+		if ! wait "$pid"; then
+			e=$(tail -1 "$UPD_TMP/curl.err" 2>/dev/null)
+			die "the download stopped (${e:-network error}). What came is kept: Download again to go on from there"
+		fi
+	fi
+	got=$(fsize "$f.part")
+	[ "$got" = "$sz" ] || { [ "$got" -gt "$sz" ] && rm -f "$f.part"; die "the $p image is $got bytes, the update list says $sz: Download again"; }
+	say "checking the $p image (sha256)"
+	h=$(sha < "$f.part")
+	if [ "$h" != "$want" ]; then
+		rm -f "$f.part"
+		die "the $p image is damaged (sha256 $h, expected $want). It was deleted: Download again"
+	fi
+	mv "$f.part" "$f" || die "cannot keep $f"
+	echo "$want  ${f##*/}" > "$f.sha256" || die "cannot write $f.sha256"
+	say "$p image OK: sha256 $want"
+	echo "$p $f" >> "$UPD_TMP/staged"
+}
+
+cmd_update_download() {
+	if [ ! -s "$UPD_TMP/manifest.flat" ] || [ ! -s "$UPD_TMP/parts" ]; then die "check for an update first"; fi
+	[ "${NET_NOCHECK:-0}" = 1 ] || need_net
+	: > "$UPD_TMP/staged"
+	read -r parts < "$UPD_TMP/parts"
+	for p in $parts; do get "$p"; done
+	{ echo "test=$(mget test)"; echo "name=$(mget name) $(mget version)"; cat "$UPD_TMP/staged"; } > "$UPD_STATE.new" &&
+		mv "$UPD_STATE.new" "$UPD_STATE"
+	say "downloaded and checked: $(mget name) $(mget version)"
+	if [ "$(mget test)" = true ]; then say "a TEST update: nothing to install"; else say "next: Install it"; fi
+}
+
+cmd_update_install() {
+	[ "${1:-}" = --yes ] || die "this writes USERDATA and BOOT: run with --yes"
+	[ -s "$UPD_STATE" ] || die "nothing downloaded yet: Check, then Download first"
+	grep -q '^test=true$' "$UPD_STATE" && die "the downloaded update is a TEST update: it is never installed"
+	batt_ok
+	root=$(awk '$1 == "root" { print $2 }' "$UPD_STATE"); boot=$(awk '$1 == "boot" { print $2 }' "$UPD_STATE")
+	[ -n "$root$boot" ] || die "nothing to install"
+	for f in $root $boot; do
+		if [ ! -f "$f" ] || [ ! -f "$f.sha256" ]; then die "$f is gone: Download again"; fi
+	done
+	say "installing $(sed -n 's/^name=//p' "$UPD_STATE")"
+	# The root first: if it fails, BOOT still starts what was there before.
+	if [ -n "$root" ]; then
+		QUIET_RESULT=1 "$SCION" write-root "$root" --yes --need-sidecar || die "writing the root to USERDATA failed (above). Do not start iOS: install again"
+	fi
+	if [ -n "$boot" ]; then
+		QUIET_RESULT=1 "$SCION" flash "$boot" BOOT || die "writing BOOT failed (above): install again before rebooting"
+	fi
+	say "installed. Reboot > System to start it"
+}
+
+finish() {
+	rc=$?
+	if [ "$rc" -eq 0 ]; then say "RESULT: OK"; else say "RESULT: FAILED (exit $rc)"; fi
+	exit "$rc"
+}
+
+cmd=${1:-help}
+[ $# -gt 0 ] && shift
+case $cmd in
+help|-h|--help) sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+json-flat) json_flat; exit $? ;;
+esac
+trap finish EXIT
+trap 'exit 130' INT TERM HUP
+trap '' PIPE
+case $cmd in
+boot) cmd_boot ;;
+wifi-scan) cmd_wifi_scan ;;
+wifi-join) cmd_wifi_join "$@" ;;
+wifi-connect) cmd_wifi_connect ;;
+wifi-status) cmd_wifi_status ;;
+wifi-off) cmd_wifi_off ;;
+wifi-forget) cmd_wifi_forget ;;
+update-url) cmd_update_url "$@" ;;
+update-check) cmd_update_check ;;
+update-download) cmd_update_download ;;
+update-install) cmd_update_install "$@" ;;
+*) echo "scion-net: unknown command $cmd (scion-net help)" >&2; exit 2 ;;
+esac

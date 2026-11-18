@@ -132,7 +132,17 @@ def edit_portrait(text):
                       "", text[a:b], flags=re.S)
     if n != 1:
         sys.exit("theme.py: partsdcard slider found %d times, expected once" % n)
-    return text[:a] + page + text[b:]
+    text = text[:a] + page + text[b:]
+    # TWRP's first page at start can be system_readonly (before Scion's home): the
+    # same MTP fix as main2's (a stale persisted tw_mtp_enabled=0 means no USB).
+    text = once(text, '<page name="system_readonly">\n\t\t\t<template name="page"/>\n',
+                '<page name="system_readonly">\n\t\t\t<template name="page"/>\n\n' + MTP_ON, "portrait.xml system_readonly")
+    return text
+
+
+MTP_ON = ('\t\t\t<action>\n\t\t\t\t<condition var1="tw_mtp_enabled" op="!=" var2="1"/>\n\t\t\t\t<actions>\n'
+          '\t\t\t\t\t<action function="set">tw_mtp_enabled=1</action>\n\t\t\t\t\t<action function="startmtp"/>\n'
+          '\t\t\t\t</actions>\n\t\t\t</action>\n')
 
 
 def recolour(src, dst, name):

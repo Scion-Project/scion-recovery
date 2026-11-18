@@ -1,0 +1,5 @@
+wpa_supplicant 2.11 (hostap)  https://w1.fi/releases/wpa_supplicant-2.11.tar.gz  sha256 912ea06f74e30a8e36fbb68064d6cdff218d8d591db0fc5d75dee6c81ac7fc0a
+curl 8.11.1  https://curl.se/download/curl-8.11.1.tar.xz  sha256 c7ca7db48b0909743eaef34250da02c19bc61d4f1dcedd6603f109409536ab56
+Alpine 3.20 ca-certificates (Mozilla's CA list) as /etc/scion/cacert.pem
+Licences: hostap BSD-3-Clause; curl the curl licence (MIT-style); ca-certificates MPL-2.0.
+Alpine 3.20 busybox-static (aarch64) as /sbin/scion-busybox, for udhcpc only. GPL-2.0; source: https://busybox.net (Alpine aports main/busybox).

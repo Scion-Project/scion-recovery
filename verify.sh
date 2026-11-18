@@ -48,6 +48,8 @@ python3 "$HERE/scripts/cpiodiff.py" stock/ramdisk.cpio new/ramdisk.cpio --allow-
 	init.recovery.samsungexynos9810.rc sbin/scion sbin/scion-bootlogs sbin/apfs-fuse sbin/apfs-extract \
 	sbin/apfsutil sbin/mkapfs sbin/apfsck sbin/apfs-label sbin/apfs-snap sbin/fsck.apfs sbin/mkfs.apfs \
 	sbin/hfsfuse sbin/hfsdump sbin/scion-fastbootd scion scion/apfs scion/hfs twres/scion.xml etc/scion-partitions.conf \
+	sbin/scion-net sbin/scion-udhcpc scion/bin scion/bin/wpa_supplicant scion/bin/wpa_cli scion/bin/curl scion/bin/busybox \
+	etc/scion etc/scion/cacert.pem \
 	--allow-changed twres/ui.xml twres/portrait.xml twres/splash.xml twres/images etc/recovery.fstab \
 	| tee cpiodiff.txt | grep -vE "^(ADDED|REPLACED)" || true
 grep -E "^(ADDED|REPLACED)" cpiodiff.txt
@@ -77,8 +79,12 @@ for f in hfsfuse hfsdump apfs-fuse apfs-extract apfsutil mkapfs apfsck apfs-labe
 	p=rdx/sbin/$f
 	if python3 "$HERE/scripts/elfcheck.py" "$p"; then ok "$f: $(file -b "$p" | cut -d, -f1-2,4)"; else bad "$f is not static aarch64"; fi
 done
+for f in wpa_supplicant wpa_cli curl busybox; do
+	p=rdx/scion/bin/$f
+	if python3 "$HERE/scripts/elfcheck.py" "$p"; then ok "scion/bin/$f: $(file -b "$p" | cut -d, -f1-2,4)"; else bad "scion/bin/$f is not static aarch64"; fi
+done
 [ "$(readlink rdx/sbin/fsck.apfs)" = apfsck ] && [ "$(readlink rdx/sbin/mkfs.apfs)" = mkapfs ] && ok "fsck.apfs, mkfs.apfs links" || bad "links"
-if "$SHELLCHECK" -s sh rdx/sbin/scion rdx/sbin/scion-bootlogs; then ok "shellcheck clean: scion, scion-bootlogs"; else bad "shellcheck"; fi
+if "$SHELLCHECK" -s sh rdx/sbin/scion rdx/sbin/scion-bootlogs rdx/sbin/scion-net rdx/sbin/scion-udhcpc; then ok "shellcheck clean: scion, scion-bootlogs, scion-net, scion-udhcpc"; else bad "shellcheck"; fi
 head -1 rdx/sbin/scion | grep -qx '#!/sbin/sh' && [ -x rdx/sbin/sh ] && ok "interpreter /sbin/sh exists in the ramdisk" || bad "interpreter"
 grep -q '^import /init.recovery.${ro.hardware}.rc' rdx/init.rc && ok "stock init.rc imports init.recovery.\${ro.hardware}.rc" || bad "import"
 grep -q 'samsungexynos9810' rdx/ueventd.samsungexynos9810.rc 2>/dev/null || ls rdx/fstab.samsungexynos9810 >/dev/null && ok "ro.hardware is samsungexynos9810 (fstab/ueventd names)"

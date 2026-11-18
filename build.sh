@@ -18,6 +18,8 @@
 #   APFSPROGS_BIN  static aarch64 mkapfs, apfsck, apfs-label, apfs-snap
 #                  (scripts/build-apfsprogs.sh)
 #   FASTBOOTD_BIN  static aarch64 scion-fastbootd (scripts/build-fastbootd.sh)
+#   NET_BIN        static aarch64 wpa_supplicant, wpa_cli, curl, scion-busybox
+#                  and cacert.pem (third_party/wifi/build-in-alpine.sh)
 #   WORK, OUT      scratch and output directories (default ./work, ./out)
 #   MAGISKBOOT     an x86_64 magiskboot; downloaded from Magisk v31.1 if unset
 #
@@ -32,6 +34,8 @@ HFS_BIN=$(realpath "$HFS_BIN")
 APFS_BIN=${APFS_BIN:?set APFS_BIN to the dir with apfs-fuse, apfs-extract, apfsutil}
 APFSPROGS_BIN=${APFSPROGS_BIN:?set APFSPROGS_BIN to the dir with mkapfs, apfsck, apfs-label, apfs-snap}
 FASTBOOTD_BIN=${FASTBOOTD_BIN:?set FASTBOOTD_BIN to the dir with scion-fastbootd (scripts/build-fastbootd.sh)}
+NET_BIN=${NET_BIN:?set NET_BIN to the dir with wpa_supplicant, wpa_cli, curl, scion-busybox, cacert.pem (third_party/wifi)}
+NET_BIN=$(realpath "$NET_BIN")
 APFS_BIN=$(realpath "$APFS_BIN")
 FASTBOOTD_BIN=$(realpath "$FASTBOOTD_BIN")
 APFSPROGS_BIN=$(realpath "$APFSPROGS_BIN")
@@ -78,13 +82,14 @@ case $fmt in *"[lzma]"*|*": lzma"*) ;; *) echo "stock ramdisk is not LZMA ($fmt)
 #    every stock entry keeps its mode, owner and content.
 cp stock/ramdisk.cpio ramdisk.cpio
 O=$HERE/overlay
-for f in "$O/sbin/scion" "$O/sbin/scion-bootlogs" "$O/init.recovery.samsungexynos9810.rc"; do
+for f in "$O/sbin/scion" "$O/sbin/scion-bootlogs" "$O/sbin/scion-net" "$O/sbin/scion-udhcpc" "$O/init.recovery.samsungexynos9810.rc"; do
 	[ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
 done
 for b in hfsfuse hfsdump; do [ -f "$HFS_BIN/$b" ] || { echo "missing $HFS_BIN/$b" >&2; exit 1; }; done
 for b in apfs-fuse apfs-extract apfsutil; do [ -f "$APFS_BIN/$b" ] || { echo "missing $APFS_BIN/$b" >&2; exit 1; }; done
 for b in mkapfs apfsck apfs-label apfs-snap; do [ -f "$APFSPROGS_BIN/$b" ] || { echo "missing $APFSPROGS_BIN/$b" >&2; exit 1; }; done
 [ -f "$FASTBOOTD_BIN/scion-fastbootd" ] || { echo "missing $FASTBOOTD_BIN/scion-fastbootd" >&2; exit 1; }
+for b in wpa_supplicant wpa_cli curl scion-busybox cacert.pem; do [ -f "$NET_BIN/$b" ] || { echo "missing $NET_BIN/$b" >&2; exit 1; }; done
 
 # 4b. Scion's theme (scripts/theme.py): the stock /twres files it changes, made
 #     from the stock ones here, replace them in place; scion.xml is new.
@@ -128,6 +133,19 @@ python3 "$HERE/scripts/fstab.py" check "$O/etc/scion-partitions.conf" recovery.f
 	"mkdir 0755 scion" \
 	"mkdir 0755 scion/apfs" \
 	"mkdir 0755 scion/hfs"
+
+# 4d. Wi-Fi and the update over Wi-Fi (scion-net): its tools in /scion/bin
+#     (busybox there only for udhcpc and ntpd), Mozilla's CA list for curl.
+"$MAGISKBOOT" cpio ramdisk.cpio \
+	"add 0755 sbin/scion-net $O/sbin/scion-net" \
+	"add 0755 sbin/scion-udhcpc $O/sbin/scion-udhcpc" \
+	"mkdir 0755 scion/bin" \
+	"add 0755 scion/bin/wpa_supplicant $NET_BIN/wpa_supplicant" \
+	"add 0755 scion/bin/wpa_cli $NET_BIN/wpa_cli" \
+	"add 0755 scion/bin/curl $NET_BIN/curl" \
+	"add 0755 scion/bin/busybox $NET_BIN/scion-busybox" \
+	"mkdir 0755 etc/scion" \
+	"add 0644 etc/scion/cacert.pem $NET_BIN/cacert.pem"
 
 # 5. Same compression as stock (legacy LZMA), then splice into the stock image.
 rm -f ramdisk.cpio.lzma

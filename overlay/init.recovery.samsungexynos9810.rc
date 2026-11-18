@@ -9,3 +9,8 @@
 service scion_bootlogs /sbin/scion-bootlogs
     oneshot
     seclabel u:r:recovery:s0
+
+# The Wi-Fi page's folders in /tmp (scion-net boot): nothing else, no radio.
+service scion_net /sbin/scion-net boot
+    oneshot
+    seclabel u:r:recovery:s0
