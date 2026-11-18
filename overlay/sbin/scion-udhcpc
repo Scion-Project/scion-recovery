@@ -1,0 +1,27 @@
+#!/sbin/sh
+# SPDX-License-Identifier: MIT-0
+# udhcpc's script for scion-net: applies the lease to $interface (address,
+# default route) and writes /etc/resolv.conf from it.
+# shellcheck disable=SC2154 # interface, ip, mask, router, dns: set by udhcpc
+case "$1" in
+deconfig)
+	ip addr flush dev "$interface"
+	ip link set "$interface" up
+	;;
+bound|renew)
+	ip addr flush dev "$interface"
+	ip addr add "$ip/${mask:-24}" dev "$interface"
+	if [ -n "${router:-}" ]; then
+		while ip route del default 2>/dev/null; do :; done
+		for r in $router; do
+			ip route add default via "$r" dev "$interface"
+			break
+		done
+	fi
+	: > /etc/resolv.conf.new
+	for d in ${dns:-}; do echo "nameserver $d" >> /etc/resolv.conf.new; done
+	[ -s /etc/resolv.conf.new ] || echo "nameserver 1.1.1.1" > /etc/resolv.conf.new
+	mv /etc/resolv.conf.new /etc/resolv.conf
+	;;
+esac
+exit 0

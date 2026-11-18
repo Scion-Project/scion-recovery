@@ -41,6 +41,9 @@
 		<variable name="scion_fb_text2_y" value="780"/>
 		<variable name="scion_fb_text3_y" value="840"/>
 		<variable name="scion_fb_text4_y" value="920"/>
+		<variable name="scion_wifi_state_h" value="120"/>
+		<variable name="scion_wifi_list_y" value="440"/>
+		<variable name="scion_wifi_list_h" value="1080"/>
 		<variable name="tw_scion_advanced" value="0"/>
 		<variable name="tw_scion_pick" value="write"/>
 		<!-- SYSTEM is not Android's here: no "keep system read only?" page at start; it stays read only. -->
@@ -50,6 +53,17 @@
 	<pages>
 		<page name="main2">
 			<template name="page"/>
+
+			<!-- TWRP keeps tw_mtp_enabled in /cache/TWRP/.twrps across reflashes. MTP's
+			     start is what brings up the USB gadget (and adb) on these phones, so a
+			     stale 0 there means no USB at all: put it back to 1 and start MTP now. -->
+			<action>
+				<condition var1="tw_mtp_enabled" op="!=" var2="1"/>
+				<actions>
+					<action function="set">tw_mtp_enabled=1</action>
+					<action function="startmtp"/>
+				</actions>
+			</action>
 
 			<text style="text_l">
 				<placement x="%col1_x_header%" y="%row3_header_y%"/>
@@ -627,6 +641,11 @@
 			<listbox style="advanced_listbox">
 				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
 
+				<listitem name="Over Wi-Fi: download, check, install">
+					<actions>
+						<action function="page">scion_update</action>
+					</actions>
+				</listitem>
 				<listitem name="iOS root image to USERDATA (SD card or USB)">
 					<actions>
 						<action function="set">tw_scion_pick=write</action>
@@ -964,6 +983,11 @@
 			<listbox style="advanced_listbox">
 				<placement x="%indent%" y="%scion_list2_y%" w="%content_width%" h="%scion_list2_h%"/>
 
+				<listitem name="Wi-Fi">
+					<actions>
+						<action function="page">scion_wifi</action>
+					</actions>
+				</listitem>
 				<listitem name="Show the write policy">
 					<actions>
 						<action function="set">tw_back=scion_settings</action>
@@ -1006,5 +1030,347 @@
 			</action>
 		</page>
 
+		<!-- Wi-Fi (/sbin/scion-net): the networks wifi-scan found, one file each in
+		     /tmp/scion-wifi/nets, listed by a fileselector; tapping one asks for its
+		     passphrase. The status line is the one file in /tmp/scion-wifi/state. -->
+		<page name="scion_wifi">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Wi-Fi</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>Scan, then tap a network to join it</text>
+			</text>
+
+			<fileselector>
+				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_wifi_state_h%"/>
+				<filter folders="0" files="1"/>
+				<path name="tw_scion_wifi_statedir" default="/tmp/scion-wifi/state"/>
+				<data name="tw_scion_wifi_statefile"/>
+				<selection name="tw_scion_wifi_statename"/>
+			</fileselector>
+
+			<fileselector>
+				<placement x="%indent%" y="%scion_wifi_list_y%" w="%content_width%" h="%scion_wifi_list_h%"/>
+				<filter folders="0" files="1"/>
+				<path name="tw_scion_wifi_dir" default="/tmp/scion-wifi/nets"/>
+				<data name="tw_scion_wifi_net"/>
+				<selection name="tw_scion_wifi_name"/>
+			</fileselector>
+
+			<action>
+				<condition var1="tw_scion_wifi_net" op="modified"/>
+				<actions>
+					<action function="set">tw_scion_wifi_psk=</action>
+					<action function="set">tw_scion_wifi_psk_display=</action>
+					<action function="page">scion_wifi_join</action>
+				</actions>
+			</action>
+
+			<action>
+				<condition var1="tw_scion_wifi_statefile" op="modified"/>
+				<actions>
+					<action function="set">tw_back=scion_wifi</action>
+					<action function="set">tw_action_text1=Wi-Fi status</action>
+					<action function="set">tw_action_param=/sbin/scion-net wifi-status</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</action>
+
+			<button style="button_quarter_width">
+				<placement x="%indent%" y="%row21a_y%"/>
+				<text>Scan</text>
+				<actions>
+					<action function="set">tw_back=scion_wifi</action>
+					<action function="set">tw_action_text1=Wi-Fi: scan</action>
+					<action function="set">tw_action_param=/sbin/scion-net wifi-scan</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%btn4_col2_x%" y="%row21a_y%"/>
+				<text>Connect</text>
+				<actions>
+					<action function="set">tw_back=scion_wifi</action>
+					<action function="set">tw_action_text1=Wi-Fi: connect</action>
+					<action function="set">tw_action_param=/sbin/scion-net wifi-connect</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%btn4_col3_x%" y="%row21a_y%"/>
+				<text>Status</text>
+				<actions>
+					<action function="set">tw_back=scion_wifi</action>
+					<action function="set">tw_action_text1=Wi-Fi status</action>
+					<action function="set">tw_action_param=/sbin/scion-net wifi-status</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</button>
+
+			<button style="button_quarter_width">
+				<placement x="%btn4_col4_x%" y="%row21a_y%"/>
+				<text>Off</text>
+				<actions>
+					<action function="set">tw_back=scion_wifi</action>
+					<action function="set">tw_action_text1=Wi-Fi off</action>
+					<action function="set">tw_action_param=/sbin/scion-net wifi-off</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</button>
+
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
+		</page>
+
+		<!-- The passphrase: masked, saved by wpa_supplicant (mode 600, /cache/scion/wifi)
+		     once the network is joined, and taken back out of TWRP's log by scion-net.
+		     ' and % cannot be typed here (they would break the command line). -->
+		<page name="scion_wifi_join">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Join Wi-Fi</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>%tw_scion_wifi_name%</text>
+			</text>
+
+			<text style="text_m_accent">
+				<placement x="%indent%" y="%row2_y%"/>
+				<text>Passphrase (empty: open, or already saved)</text>
+			</text>
+
+			<input>
+				<placement x="%indent%" y="%row4_y%" w="%content_width%" h="%input_height%"/>
+				<text>%tw_scion_wifi_psk_display%</text>
+				<data name="tw_scion_wifi_psk" mask="*" maskvariable="tw_scion_wifi_psk_display"/>
+				<restrict minlen="0" maxlen="63" allow=" !&quot;#$&amp;()*+,-./0123456789:;&lt;=&gt;?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~"/>
+				<actions>
+					<action function="set">tw_operation_state=0</action>
+					<action function="page">scion_wifi_joining</action>
+				</actions>
+			</input>
+
+			<fill color="%accent_color%">
+				<placement x="%indent%" y="%row5_y%" w="%content_width%" h="input_line_width" placement="1"/>
+			</fill>
+
+			<button style="main_button_half_height">
+				<placement x="%indent%" y="%row7_y%"/>
+				<text>Join</text>
+				<actions>
+					<action function="set">tw_operation_state=0</action>
+					<action function="page">scion_wifi_joining</action>
+				</actions>
+			</button>
+
+			<button style="main_button_half_height">
+				<placement x="%center_x%" y="%row7_y%"/>
+				<text>{@cancel_btn=Cancel}</text>
+				<actions>
+					<action function="set">tw_scion_wifi_psk=</action>
+					<action function="set">tw_scion_wifi_psk_display=</action>
+					<action function="page">scion_wifi</action>
+				</actions>
+			</button>
+
+			<template name="keyboardtemplate"/>
+
+			<action>
+				<touch key="back"/>
+				<actions>
+					<action function="set">tw_scion_wifi_psk=</action>
+					<action function="set">tw_scion_wifi_psk_display=</action>
+					<action function="page">scion_wifi</action>
+				</actions>
+			</action>
+
+			<action>
+				<touch key="home"/>
+				<actions>
+					<action function="set">tw_scion_wifi_psk=</action>
+					<action function="set">tw_scion_wifi_psk_display=</action>
+					<action function="page">main</action>
+				</actions>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
+		</page>
+
+		<!-- Joins with TWRP's cmd action (logged, not shown on screen; scion-net
+		     scrubs the passphrase from the log), then shows what it said. -->
+		<page name="scion_wifi_joining">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Joining Wi-Fi</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>%tw_scion_wifi_name%</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%center_x%" y="%row6_y%" placement="5"/>
+				<text>Joining, then asking for an address...</text>
+			</text>
+
+			<template name="progress_bar"/>
+
+			<action>
+				<condition var1="tw_operation_state" var2="1"/>
+				<actions>
+					<action function="set">tw_scion_wifi_psk=</action>
+					<action function="set">tw_scion_wifi_psk_display=</action>
+					<action function="set">tw_back=scion_wifi</action>
+					<action function="set">tw_action_text1=Wi-Fi</action>
+					<action function="set">tw_action_param=cat /tmp/scion-wifi/join.log</action>
+					<action function="page">scion_go</action>
+				</actions>
+			</action>
+
+			<action>
+				<action function="cmd">/sbin/scion-net wifi-join '%tw_scion_wifi_net%' '%tw_scion_wifi_psk%' &gt; /tmp/scion-wifi/join.log 2&gt;&amp;1</action>
+			</action>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">scion_wifi</action>
+			</action>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
+		</page>
+
+		<!-- Install over Wi-Fi: the manifest at the address in /cache/scion/update-url
+		     names a root and a BOOT image (url, sha256, size); scion-net downloads them
+		     to the SD card or a USB drive, checks them, and writes them only through
+		     /sbin/scion (its write policy), after a swipe. -->
+		<page name="scion_update">
+			<template name="page"/>
+
+			<text style="text_l">
+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
+				<text>Install over Wi-Fi</text>
+			</text>
+
+			<text style="text_m">
+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
+				<text>One step at a time, top to bottom</text>
+			</text>
+
+			<listbox style="advanced_listbox">
+				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
+
+				<listitem name="1. Wi-Fi: scan, then join a network">
+					<actions>
+						<action function="set">tw_back=scion_wifi</action>
+						<action function="set">tw_action_text1=Wi-Fi: scan</action>
+						<action function="set">tw_action_param=/sbin/scion-net wifi-scan</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="2. Check for an update">
+					<actions>
+						<action function="set">tw_back=scion_update</action>
+						<action function="set">tw_action_text1=Check for an update</action>
+						<action function="set">tw_action_param=/sbin/scion-net update-check</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="3. Download it and check it">
+					<actions>
+						<action function="set">tw_back=scion_update</action>
+						<action function="set">tw_action_text1=Download and check</action>
+						<action function="set">tw_action_param=/sbin/scion-net update-download</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="4. Install it (USERDATA, then BOOT)">
+					<actions>
+						<action function="set">tw_back=scion_update</action>
+						<action function="set">tw_action_text1=Install the update</action>
+						<action function="set">tw_text1=The update downloaded in step 3</action>
+						<action function="set">tw_text2=ERASES USERDATA, then writes BOOT</action>
+						<action function="set">tw_text3=Battery 30 % or charging; all read back</action>
+						<action function="set">tw_slider_text=Swipe to install</action>
+						<action function="set">tw_action_param=/sbin/scion-net update-install --yes</action>
+						<action function="page">scion_confirm</action>
+					</actions>
+				</listitem>
+				<listitem name="Wi-Fi status">
+					<actions>
+						<action function="set">tw_back=scion_update</action>
+						<action function="set">tw_action_text1=Wi-Fi status</action>
+						<action function="set">tw_action_param=/sbin/scion-net wifi-status</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+				<listitem name="Where updates come from">
+					<actions>
+						<action function="set">tw_back=scion_update</action>
+						<action function="set">tw_action_text1=Update address</action>
+						<action function="set">tw_action_param=/sbin/scion-net update-url</action>
+						<action function="page">scion_go</action>
+					</actions>
+				</listitem>
+			</listbox>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note1_y%"/>
+				<text>Downloads go to the SD card or USB (exFAT).</text>
+			</text>
+
+			<text style="text_s">
+				<placement x="%indent%" y="%scion_note2_y%"/>
+				<text>Nothing is written before the swipe in step 4.</text>
+			</text>
+
+			<action>
+				<touch key="back"/>
+				<action function="page">main</action>
+			</action>
+
+			<action>
+				<touch key="home"/>
+				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
+		</page>
 	</pages>
 </recovery>

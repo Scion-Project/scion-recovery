@@ -140,7 +140,7 @@ T="non-log regions skipped"; t sh -c '! grep -q modem /tmp/scion-logs/*/reserved
 T="boot mode writes /tmp/scion-boot"; t sh -c "mksh /r/overlay/sbin/scion logs --boot /tmp/scion-boot >/dev/null && [ -d /tmp/scion-boot ]"
 T="help"; t sh -c "$S help | grep -q 'scion flash IMG'"
 T="unknown command exits 2"; t sh -c "$S frobnicate >/dev/null 2>&1; [ \$? -eq 2 ]"
-T="also runs under busybox ash"; t sh -c "sh /r/overlay/sbin/scion version | grep -q 'scion 4'"
+T="also runs under busybox ash"; t sh -c "sh /r/overlay/sbin/scion version | grep -q 'scion 5'"
 T="help lists through the RESULT line"; t sh -c "$S help | grep -q 'RESULT: OK'"
 
 losetup -d "$L"

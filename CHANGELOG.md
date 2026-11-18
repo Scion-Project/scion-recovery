@@ -1,6 +1,16 @@
 <!-- SPDX-License-Identifier: MIT-0 -->
 # Changelog
 
+## scion 5 (18 November 2026): Wi-Fi and Install over Wi-Fi
+
+- **Wi-Fi** (Scion settings > Wi-Fi, or Install iOS > Over Wi-Fi): scan, tap a network, type its passphrase
+  (masked; saved mode 600 in /cache/scion/wifi; scrubbed from TWRP's log), status line. The kernel's own
+  bcmdhd with VENDOR's firmware (read only); static wpa_supplicant, curl and busybox (udhcpc, ntpd). docs/WIFI.md.
+- **Install over Wi-Fi**: Check (a manifest at the address in /cache/scion/update-url), Download (SD card or
+  USB, resumes, sha256 checked), Install (swipe; 30 % battery or charging; through `scion`'s write policy).
+- **MTP forced back on at start**: a stale `tw_mtp_enabled=0` in /cache/TWRP/.twrps left the phone with no
+  USB; Scion's home page now sets it to 1 and starts MTP when it is not.
+
 ## scion 4 (18 November 2026): no wipe, no clipped text, a clean start
 
 - **Nothing in TWRP can wipe USERDATA**: `/data` is out of TWRP's fstab (TWRP 3.7.0 gives `/data` the wipe

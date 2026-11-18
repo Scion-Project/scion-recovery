@@ -26,14 +26,17 @@ jobs:
       - name: shellcheck
         run: |
           # What goes into the image: every finding. Build and test scripts: warnings and errors.
-          shellcheck -s sh overlay/sbin/scion overlay/sbin/scion-bootlogs
-          shellcheck -S warning -s sh tests/test-actions.sh tests/test-fastbootd.sh
+          shellcheck -s sh overlay/sbin/scion overlay/sbin/scion-bootlogs overlay/sbin/scion-net overlay/sbin/scion-udhcpc
+          shellcheck -S warning -s sh tests/test-actions.sh tests/test-fastbootd.sh tests/test-net.sh
           shellcheck -S warning build.sh verify.sh scripts/build-apfsprogs.sh scripts/build-fastbootd.sh
       - name: Write policy and fstab (tests/test-policy.py)
         run: python3 -I tests/test-policy.py
       - name: scion's actions against fake partitions, in TWRP's mksh, busybox sh and dash
         run: |
           for sh in mksh "busybox sh" dash; do tests/test-actions.sh "$sh"; done
+      - name: scion-net (the update over Wi-Fi) against a local HTTP server, in mksh, busybox sh and dash
+        run: |
+          for sh in mksh "busybox sh" dash; do tests/test-net.sh "$sh"; done
       - name: scion-fastbootd (built here with cc) with the real fastboot client, over TCP
         run: |
           sudo apt-get install -y -q --no-install-recommends fastboot android-sdk-libsparse-utils
@@ -56,7 +59,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tools-out
-          key: tools-v1-${{ hashFiles('third_party/**', 'scripts/build-apfsprogs.sh') }}
+          key: tools-v1-${{ hashFiles('third_party/hfsfuse/**', 'third_party/apfs-fuse/**', 'third_party/apfsprogs/**', 'scripts/build-apfsprogs.sh') }}
 
       - name: hfsfuse, hfsdump (Alpine, static aarch64)
         if: steps.tools-cache.outputs.cache-hit != 'true'
@@ -91,6 +94,29 @@ jobs:
           set -eux
           WORK=$RUNNER_TEMP/apfsprogs-work scripts/build-apfsprogs.sh "$PWD/tools-out/apfsprogs"
 
+      - name: Wi-Fi tools from cache
+        id: wifi-cache
+        uses: actions/cache@v4
+        with:
+          path: wifi-out
+          key: wifi-v1-${{ hashFiles('third_party/wifi/**') }}
+
+      - name: wpa_supplicant, wpa_cli, curl, busybox (Alpine, static aarch64)
+        if: steps.wifi-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          W=$PWD/wifi-out; mkdir -p "$W/src"
+          curl -fsSL -o "$W/src/wpa_supplicant-2.11.tar.gz" https://w1.fi/releases/wpa_supplicant-2.11.tar.gz
+          curl -fsSL -o "$W/src/curl-8.11.1.tar.xz" https://curl.se/download/curl-8.11.1.tar.xz
+          (cd "$W/src" && sha256sum -c - <<'EOF'
+          912ea06f74e30a8e36fbb68064d6cdff218d8d591db0fc5d75dee6c81ac7fc0a  wpa_supplicant-2.11.tar.gz
+          c7ca7db48b0909743eaef34250da02c19bc61d4f1dcedd6603f109409536ab56  curl-8.11.1.tar.xz
+          EOF
+          )
+          cp third_party/wifi/build-in-alpine.sh "$W/"
+          docker run --rm -v "$W:/w" alpine:3.20 sh /w/build-in-alpine.sh
+          sudo rm -rf "$W/src"
+
       - name: scion-fastbootd (zig, static aarch64)
         run: WORK=$RUNNER_TEMP/fastbootd-work scripts/build-fastbootd.sh "$PWD/fastbootd-out"
 
@@ -102,7 +128,7 @@ jobs:
       - name: Build the image
         run: |
           HFS_BIN=tools-out/hfsfuse/bin/aarch64 APFS_BIN=tools-out/apfs-fuse/bin/aarch64 \
-            APFSPROGS_BIN=tools-out/apfsprogs FASTBOOTD_BIN=fastbootd-out ./build.sh
+            APFSPROGS_BIN=tools-out/apfsprogs FASTBOOTD_BIN=fastbootd-out NET_BIN=wifi-out/bin/aarch64 ./build.sh
 
       - name: Verify (no phone)
         run: ./verify.sh
@@ -110,7 +136,7 @@ jobs:
       - name: Previews of the theme (scripts/preview.py, an approximation, not TWRP)
         run: |
           mkdir -p preview
-          for p in main2 scion_install scion_switch scion_backup scion_disks scion_settings scion_logs scion_fastboot; do
+          for p in main2 scion_install scion_switch scion_backup scion_disks scion_settings scion_logs scion_fastboot scion_wifi scion_wifi_join scion_update; do
             python3 scripts/preview.py work/merged-twres "$p" "preview/$p.png"
           done
           python3 scripts/preview.py work/merged-twres scion_confirm preview/scion_confirm.png \

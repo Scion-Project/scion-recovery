@@ -1,0 +1,11 @@
+{
+  "name": "Scion update test",
+  "version": "1",
+  "test": true,
+  "notes": "A dry run: downloads LICENSE as a stand-in BOOT image and checks it. Never installed.",
+  "boot": {
+    "url": "https://raw.githubusercontent.com/Scion-Project/scion-recovery/main/LICENSE",
+    "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+    "size": 18092
+  }
+}
