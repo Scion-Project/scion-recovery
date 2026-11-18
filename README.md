@@ -63,7 +63,7 @@ secure firmware. Download mode lives in the boot loader, which nothing here writ
 | Phone info | `facts` | nothing: model, boot loader, battery, memory, partitions, storage |
 | Scion settings | `policy`, the Advanced switch, the log of writes | nothing |
 
-TWRP's own pages are there below Scion's: Install, Backup, Mount (MTP is off at start), Settings
+TWRP's own pages are there below Scion's: Install, Backup, Mount (and MTP), Settings
 (brightness, screen timeout, time zone, vibration, language), Advanced (file manager, terminal, ADB sideload,
 copy log, fix contexts), Reboot (System, Recovery, Download, Power Off). TWRP's decryption of Android's data is
 TWRP's, as built by TeamWin.

@@ -15,7 +15,7 @@
   with TWRP's font.
 - **Home key** on every Scion page, and power + volume down takes a screenshot there (to /cache/Pictures/Screenshots).
 - **A clean start-up**: no red mount errors. `/system` (SYSTEM holds iOS 16.5's disk, not ext4) is marked removable so its failed mount is silent (and no
-  read-only prompt), `/cache` is TWRP's settings storage instead of `/data/media`, and MTP (which failed) is off at start.
+  read-only prompt), `/cache` is TWRP's settings storage instead of `/data/media`. TWRP's MTP start still logs `E:[MTP] Failed to start usb driver!`: that same start is what brings up adb's USB gadget here (with MTP off at start the phone had no USB), so it stays.
 
 ## Unreleased (17 November 2026): Scion's own recovery
 
