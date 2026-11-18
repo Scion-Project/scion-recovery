@@ -13,7 +13,7 @@
 - **Text no longer cut off** at 1440x2960: TWRP draws each line unwrapped at the theme size x 4/3 at 300 dpi,
   so the long notes ran past the screen's edge. They are shorter, and `theme.py lint` measures every Scion line
   with TWRP's font.
-- **Home key** on every Scion page.
+- **Home key** on every Scion page, and power + volume down takes a screenshot there (to /cache/Pictures/Screenshots).
 - **A clean start-up**: no red mount errors. `/system` (SYSTEM holds iOS 16.5's disk, not ext4) is out of the
   fstab, `/cache` is TWRP's settings storage instead of `/data/media`, and MTP (which failed) is off at start.
 

@@ -173,6 +173,10 @@
 				<touch key="home"/>
 				<action function="page">main</action>
 			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
 		</page>
 
 		<!-- Entered from every Scion button: a fresh operation state, then scion_run. -->
@@ -211,6 +215,10 @@
 					<action function="set">tw_terminal_location=/tmp</action>
 					<action function="terminalcommand">%tw_action_param%</action>
 				</actions>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -262,6 +270,10 @@
 					<action function="page">clear_vars</action>
 				</actions>
 			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
 		</page>
 
 		<!-- A swipe before anything that writes. tw_text1..3 say what, tw_slider_text the swipe. -->
@@ -309,6 +321,10 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -368,6 +384,10 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -434,6 +454,10 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -520,6 +544,10 @@
 				<touch key="home"/>
 				<action function="page">main</action>
 			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
 		</page>
 
 		<page name="scion_boot">
@@ -577,6 +605,10 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 		<page name="scion_install">
@@ -643,6 +675,10 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -750,6 +786,10 @@
 				<touch key="home"/>
 				<action function="page">main</action>
 			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
 		</page>
 
 		<page name="scion_backup">
@@ -817,6 +857,10 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
@@ -892,6 +936,10 @@
 				<touch key="home"/>
 				<action function="page">main</action>
 			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
+			</action>
 		</page>
 
 		<page name="scion_settings">
@@ -951,6 +999,10 @@
 			<action>
 				<touch key="home"/>
 				<action function="page">main</action>
+			</action>
+			<action>
+				<touch key="power+voldown"/>
+				<action function="screenshot"/>
 			</action>
 		</page>
 
