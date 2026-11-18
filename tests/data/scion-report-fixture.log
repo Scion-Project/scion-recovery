@@ -1,0 +1,27 @@
+[    0.000000] Linux version 4.14.113 (build@buildhost) #1 SMP PREEMPT
+[   10.100000] wlan0: connected to HomeNet-5G, retry 2
+[   10.200000] CRASH: pid 812 (recovery) signal 11 at 0x00000000 reason=null deref
+[   10.210000] CRASH: bt #0 0xc0a1b2c3 /Users/dylan/Library/Scion/recovery.log
+[   10.220000] CRASH: bt #1 /var/mobile/Containers/Data/Application/1A2B3C4D-1111-2222-3333-444455556666/Documents/x.db
+[   10.230000] CRASH: mac AA:BB:CC:DD:EE:FF ip 192.168.1.23 v6 fe80::1234:abcd:5678
+[   10.240000] CRASH: serialno=R58M12ABCDE imei: 490154203237518
+[   10.250000] CRASH: device 358240051111110 uuid 7f3c9e1a-2b4d-4e5f-8a9b-0c1d2e3f4a5b
+[   10.260000] CRASH: key 0123456789abcdef0123456789abcdef
+[   10.270000] CRASH: contact dylan@example.com phone +353871234567 sn=ZZ99QQ
+[   10.280000] CRASH: at 53.349805,-6.260310 wifi ssid=HomeNet-5G, bssid=00:11:22:33:44:55
+[   10.290000] CRASH: join "Cafe Guest" failed
+[   10.300000] SWEET EXIT: code 0 after 3.2 s
+[   10.310000] panic(): not syncing: Attempted to kill init
+[   10.320000] STARLTE TOP   PID  COMMAND  CPU%  S
+[   10.330000] STARLTE MEM   total 3.6G free 412M
+[   10.340000] decmpfs: refused key in /private/var
+[   10.350000] MTL2 driver: Unsupported format 0x42
+[   10.360000] cpufreq_gov: stat cpu0 0 0 1 2
+[   10.370000] noise: this line is not for the report
+[   10.380000] serial-number: C02XX1234567
+[   10.390000] mlb-serial: C02MLB987654
+[   10.400000] region-info: XAA-FAKE
+[   10.410000] model-number: MKT12ZD/A
+[   10.420000] unique-chip-id: 0xABCDEF0123
+[   10.430000] ecid: 0x1234ABCD5678
+[   10.440000] nonce: 5a5a5a5a

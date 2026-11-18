@@ -26,8 +26,8 @@ jobs:
       - name: shellcheck
         run: |
           # What goes into the image: every finding. Build and test scripts: warnings and errors.
-          shellcheck -s sh overlay/sbin/scion overlay/sbin/scion-bootlogs overlay/sbin/scion-net overlay/sbin/scion-udhcpc
-          shellcheck -S warning -s sh tests/test-actions.sh tests/test-fastbootd.sh tests/test-net.sh
+          shellcheck -s sh overlay/sbin/scion overlay/sbin/scion-bootlogs overlay/sbin/scion-net overlay/sbin/scion-udhcpc overlay/sbin/scion-report
+          shellcheck -S warning -s sh tests/test-actions.sh tests/test-fastbootd.sh tests/test-net.sh tests/test-report-scrub.sh
           shellcheck -S warning build.sh verify.sh scripts/build-apfsprogs.sh scripts/build-fastbootd.sh
       - name: Write policy and fstab (tests/test-policy.py)
         run: python3 -I tests/test-policy.py
@@ -37,6 +37,9 @@ jobs:
       - name: scion-net (the update over Wi-Fi) against a local HTTP server, in mksh, busybox sh and dash
         run: |
           for sh in mksh "busybox sh" dash; do tests/test-net.sh "$sh"; done
+      - name: scion-report's scrubber and report builder on a fixture log (mksh, busybox sh, dash)
+        run: |
+          for sh in mksh "busybox sh" dash; do tests/test-report-scrub.sh "$sh"; done
       - name: scion-fastbootd (built here with cc) with the real fastboot client, over TCP
         run: |
           sudo apt-get install -y -q --no-install-recommends fastboot android-sdk-libsparse-utils
