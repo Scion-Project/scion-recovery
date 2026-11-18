@@ -112,7 +112,27 @@ def edit_portrait(text):
            '\t\t\t\t<placement x="%center_x%" y="%row21a_y%"/>\n'
            '\t\t\t\t<text>{@install_image_btn=Install Image}</text>\n')
     new = old.replace('var2="0"/>\n', 'var2="0"/>\n\t\t\t\t<condition var1="tw_scion_advanced" var2="1"/>\n', 1)
-    return once(text, old, new, "portrait.xml Install Image button")
+    text = once(text, old, new, "portrait.xml Install Image button")
+    # TeamWin's home page: no Wipe and no Restore button (Wipe, Format Data and
+    # Restore are TWRP's ways to erase or overwrite USERDATA and BOOT).
+    for label, page in (("wipe", "wipe"), ("restore", "restore")):
+        btn = re.compile(r'\t\t\t<button style="main_button">\n\t\t\t\t<placement [^\n]*\n'
+                         r'\t\t\t\t<text>\{@%s_btn=[^}]*\}</text>\n'
+                         r'\t\t\t\t<action function="page">%s</action>\n\t\t\t</button>\n\n?' % (label, page))
+        a = text.index('<page name="twrp_home">')
+        b = text.index("</page>", a)
+        home, n = btn.subn("", text[a:b])
+        if n != 1:
+            sys.exit("theme.py: twrp_home %s button found %d times, expected once" % (label, n))
+        text = text[:a] + home + text[b:]
+    # TWRP's Partition SD Card: its swipe (partitionsd re-partitions a card) is taken out.
+    a = text.index('<page name="partsdcard">')
+    b = text.index("</page>", a)
+    page, n = re.subn(r"\t\t\t<slider>\n\t\t\t\t<text>\{@swipe_part_sd=[^}]*\}</text>\n.*?\t\t\t</slider>\n\n?",
+                      "", text[a:b], flags=re.S)
+    if n != 1:
+        sys.exit("theme.py: partsdcard slider found %d times, expected once" % n)
+    return text[:a] + page + text[b:]
 
 
 def recolour(src, dst, name):
@@ -204,6 +224,90 @@ ACTIONS = {"reboot", "home", "key", "page", "reload", "readBackup", "set", "clea
            "editfile", "%tw_action%", "%tw_action2%", "%tw_cancel_action%", "wipe_crypto_key"}
 
 
+# Actions that erase, format or overwrite partitions, by tw_action value or
+# action function. Only the stock pages listed here may use them: with
+# fstab.py's fstab they list no partition (no /data, no wipe flags, image
+# lines BOOT and MISC only), and no Scion or home page leads to Wipe or Restore.
+DANGEROUS = {"wipe", "format", "formatdata", "restore", "changefilesystem", "partitionsd", "flashimage",
+             "resize", "repair", "nandroid"}
+ALLOWED_DANGEROUS = {
+    ("portrait.xml", "flash_done", "wipe"),              # wipe cache/dalvik after a zip
+    ("portrait.xml", "flashimage_confirm", "flashimage"),  # behind tw_scion_advanced; BOOT only
+    ("portrait.xml", "wipe", "wipe"), ("portrait.xml", "advancedwipe", "wipe"),
+    ("portrait.xml", "formatdata_confirm", "wipe"),
+    ("portrait.xml", "partitionoptions", "resize"), ("portrait.xml", "partitionoptions", "repair"),
+    ("portrait.xml", "selectfilesystem", "changefilesystem"),
+    ("portrait.xml", "backup_run", "nandroid"), ("portrait.xml", "restore_run", "nandroid"),
+}
+# Scion pages: TWRP draws text on one line, no wrapping, at the theme size x
+# min(1440/1080, 2960/1920) and FreeType's 300 dpi (x 300/288), so a line too
+# long for the 1080-wide design is cut off at the screen's edge.
+FONT_SIZES = {"font_l": 54, "font_m": 42, "font_s": 36}
+STYLE_FONT = {"text_l": "font_l", "text_m": "font_m", "text_m_accent": "font_m", "text_s": "font_s",
+              "main_button_half_height": "font_m", "button_quarter_width": "font_m",
+              "advanced_listbox": "font_m", "checkbox": "font_m"}
+STYLE_WIDTH = {"main_button_half_height": 470, "button_quarter_width": 225,
+               "advanced_listbox": 900, "checkbox": 920}
+RIGHT_EDGE = 1020
+
+
+def lint_text(root, variables, font_file):
+    from PIL import ImageFont
+    errors = []
+    fonts = {k: ImageFont.truetype(font_file, v) for k, v in FONT_SIZES.items()}
+    for page in root.iter("page"):
+        for el in page:
+            font = STYLE_FONT.get(el.get("style"))
+            pl = el.find("placement")
+            if font is None or pl is None:
+                continue
+            if el.tag == "listbox":
+                lines = [(i.get("name") or "", STYLE_WIDTH["advanced_listbox"]) for i in el.iter("listitem")]
+            else:
+                t = el.find("text")
+                if t is None:
+                    continue
+                x = pl.get("x", "0")
+                x = int(variables.get(x.strip("%"), 0)) if "%" in x else int(x)
+                room = STYLE_WIDTH.get(el.get("style"), RIGHT_EDGE - x)
+                if pl.get("placement") == "5":
+                    room = 2 * min(x, RIGHT_EDGE - x)
+                lines = [(re.sub(r"\{@[a-z0-9_]+=(.*)\}", r"\1", t.text or ""), room)]
+            for text, room in lines:
+                if "%" in re.sub(r"%tw_version%", "", text):
+                    continue
+                w = fonts[font].getlength(text.replace("%tw_version%", "3.7.0_9-0")) * 300 / 288
+                if w > room:
+                    errors.append("scion.xml: %s: %r is %d wide, room for %d: it would be cut off"
+                                  % (page.get("name"), text, w, room))
+    return errors
+
+
+def lint_safety(trees):
+    errors = []
+    for fname in ("portrait.xml", "scion.xml"):
+        for page in trees[fname].iter("page"):
+            name = page.get("name")
+            for el in page.iter("action"):
+                fn = el.get("function")
+                arg = (el.text or "").strip()
+                hit = fn if fn in DANGEROUS else None
+                if fn == "set" and arg.startswith("tw_action=") and arg[len("tw_action="):] in DANGEROUS:
+                    hit = arg[len("tw_action="):]
+                if hit and (fname, name, hit) not in ALLOWED_DANGEROUS:
+                    errors.append("%s: page %s uses %s (not on theme.py's ALLOWED_DANGEROUS list)" % (fname, name, hit))
+            if name in ("main2", "twrp_home"):
+                for el in page.iter("action"):
+                    if el.get("function") == "page" and (el.text or "").strip() in ("wipe", "restore"):
+                        errors.append("%s: %s leads to TWRP's %s page" % (fname, name, el.text.strip()))
+        if fname == "scion.xml":
+            for page in trees[fname].iter("page"):
+                if page.find("template") is not None and page.get("name") != "scion_run" and \
+                        not any(t.get("key") == "home" for t in page.iter("touch")):
+                    errors.append("scion.xml: page %s has no home key" % page.get("name"))
+    return errors
+
+
 def lint(twres):
     errors = []
     trees = {}
@@ -266,6 +370,12 @@ def lint(twres):
                     for name in re.findall(r"%([a-z0-9_]+)%", v):
                         if name not in variables:
                             errors.append("%s: placement uses undefined variable %s" % (fname, name))
+    errors += lint_safety(trees)
+    varvals = {}
+    for root in main:
+        for v in root.iter("variables"):
+            varvals.update({x.get("name"): x.get("value") for x in v})
+    errors += lint_text(trees["scion.xml"], varvals, os.path.join(twres, "fonts", "RobotoCondensed-Regular.ttf"))
     if "main2" not in pages or "main" not in pages:
         errors.append("main/main2 pages missing")
     # The splash file is a separate package: its own resources only.

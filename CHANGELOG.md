@@ -1,6 +1,22 @@
 <!-- SPDX-License-Identifier: MIT-0 -->
 # Changelog
 
+## scion 4 (18 November 2026): no wipe, no clipped text, a clean start
+
+- **Nothing in TWRP can wipe USERDATA**: `/data` is out of TWRP's fstab (TWRP 3.7.0 gives `/data` the wipe
+  and factory-reset flags by its mount point); every other file system line says
+  `canbewiped=0;wipeingui=0;wipeduringfactoryreset=0`; the backup-only image lines (RECOVERY, SYSTEM, VENDOR,
+  ODM images) are gone. `fstab.py check` enforces all of it.
+- **No Wipe or Restore button** on Scion's home page or TeamWin's; Partition SD Card's swipe removed;
+  `theme.py lint` fails on any wipe, format, restore, change-file-system, partition-SD or flash-image action
+  outside its allowed list.
+- **Text no longer cut off** at 1440x2960: TWRP draws each line unwrapped at the theme size x 4/3 at 300 dpi,
+  so the long notes ran past the screen's edge. They are shorter, and `theme.py lint` measures every Scion line
+  with TWRP's font.
+- **Home key** on every Scion page.
+- **A clean start-up**: no red mount errors. `/system` (SYSTEM holds iOS 16.5's disk, not ext4) is out of the
+  fstab, `/cache` is TWRP's settings storage instead of `/data/media`, and MTP (which failed) is off at start.
+
 ## Unreleased (17 November 2026): Scion's own recovery
 
 Not run on a phone yet (TESTING.md).
