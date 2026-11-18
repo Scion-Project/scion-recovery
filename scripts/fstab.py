@@ -22,10 +22,12 @@ flashimg=0. So:
   - the image ("emmc") lines that are there only for TWRP's Backup and Restore
     (/recovery, /system_image, /vendor_image, /odm_image) are taken out: only
     /boot and /misc stay.
-  - /system (SYSTEM) is taken out: on these phones SYSTEM holds iOS 16.5's
-    disk (HFS Plus or APFS) or nothing, never ext4, so TWRP's start-up mount
-    failed ("Failed to mount '/system'") and its "keep system read only" page
-    came up. Scion reaches SYSTEM by its by-name link.
+  - /system (SYSTEM) stays (TWRP's SAR detection needs a /system line: without
+    one, its first pass sets up every partition on a throwaway partition
+    manager and TWRP does not come up), but gets "removable": on these phones
+    SYSTEM holds iOS 16.5's disk (HFS Plus or APFS) or nothing, never ext4,
+    and TWRP's start-up size check of a removable partition does not print
+    "Failed to mount '/system'". Scion reaches SYSTEM by its by-name link.
   - /cache gets "storage;settingsstorage": with no /data, TWRP keeps its
     settings, backups folder and storage path on /cache instead of trying
     /data/media ("Unable to mount storage", "Unable to mount
@@ -93,10 +95,8 @@ def apply(pol, src, dst):
             out.append("# Scion: %s (%s) is not in TWRP's fstab: TWRP would wipe it by its mount point (Wipe, Format Data, factory reset)" % (mount, name))
             out.append("# " + line)
             continue
-        if mount == "/system":
-            out.append("# Scion: %s (%s) holds iOS 16.5's disk or nothing, not ext4: TWRP's mount of it fails" % (mount, name))
-            out.append("# " + line)
-            continue
+        if mount == "/system" and not re.search(r"(^|;)removable(;|$)", flags):
+            line = line.rstrip() + (";" if "flags=" in line else "        flags=") + "removable"
         if mount == "/cache":
             line = line.rstrip() + (";" if "flags=" in line else "        flags=") + CACHE_STORAGE
         if fstype == "emmc" and name not in EMMC_KEEP:
@@ -134,8 +134,8 @@ def check(pol, path):
         mounts.append(mount)
         if name in pol["never"]:
             bad.append("%s (%s) is on the never list" % (mount, name))
-        if mount == "/system":
-            bad.append("/system (%s): SYSTEM is not ext4 here; it must not be in the fstab" % name)
+        if mount == "/system" and not re.search(r"(^|;)removable(;|$)", flags):
+            bad.append("/system (%s) is not removable: TWRP would print its failed mount at start-up" % name)
         if mount == "/cache" and not re.search(r"(^|;)settingsstorage(;|$)", flags):
             bad.append("/cache (%s) is not TWRP's settings storage" % name)
         if fstype == "emmc" and name not in pol["write"] and not no_flash(flags):
@@ -154,6 +154,8 @@ def check(pol, path):
             for f in WIPE_FLAGS[:3]:
                 if not re.search(r"(^|;)%s=0(;|$)" % f, flags):
                     bad.append("%s (%s) does not say %s=0 (TWRP's default for a file system is wipeable)" % (mount, name, f))
+    if "/system" not in mounts:
+        bad.append("no /system line: TWRP's SAR detection needs one")
     if "/cache" not in mounts:
         bad.append("no /cache line: TWRP needs it for its settings and logs")
     return bad

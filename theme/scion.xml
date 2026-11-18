@@ -45,6 +45,8 @@
 		<variable name="tw_scion_pick" value="write"/>
 		<!-- MTP off at start: it fails here ("Failed to start usb driver") and Scion uses adb. -->
 		<variable name="tw_mtp_enabled" value="0" persist="1"/>
+		<!-- SYSTEM is not Android's here: no "keep system read only?" page at start; it stays read only. -->
+		<variable name="tw_mount_system_ro" value="1" persist="1"/>
 	</variables>
 
 	<pages>

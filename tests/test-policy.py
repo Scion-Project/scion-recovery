@@ -60,7 +60,8 @@ with tempfile.TemporaryDirectory() as d:
     t("MISC gets flashimg=0", all("flashimg=0" in ln for ln in active if ln.split()[0] == "/misc"))
     t("only BOOT and MISC image lines stay", sorted(ln.split()[0] for ln in active if ln.split()[1] == "emmc")
       == ["/boot", "/misc"])
-    t("/data, /system out", not any(ln.split()[0] in ("/data", "/system") for ln in active))
+    t("/data out", not any(ln.split()[0] == "/data" for ln in active))
+    t("/system kept, removable", any(ln.startswith("/system ") and "removable" in ln for ln in active))
     t("/cache is TWRP's settings storage", any(ln.startswith("/cache") and "settingsstorage" in ln for ln in active))
     t("every file system line says canbewiped=0;wipeingui=0;wipeduringfactoryreset=0",
       all("canbewiped=0;wipeingui=0;wipeduringfactoryreset=0" in ln for ln in active if ln.split()[1] != "emmc"))

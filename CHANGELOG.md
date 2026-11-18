@@ -14,8 +14,8 @@
   so the long notes ran past the screen's edge. They are shorter, and `theme.py lint` measures every Scion line
   with TWRP's font.
 - **Home key** on every Scion page, and power + volume down takes a screenshot there (to /cache/Pictures/Screenshots).
-- **A clean start-up**: no red mount errors. `/system` (SYSTEM holds iOS 16.5's disk, not ext4) is out of the
-  fstab, `/cache` is TWRP's settings storage instead of `/data/media`, and MTP (which failed) is off at start.
+- **A clean start-up**: no red mount errors. `/system` (SYSTEM holds iOS 16.5's disk, not ext4) is marked removable so its failed mount is silent (and no
+  read-only prompt), `/cache` is TWRP's settings storage instead of `/data/media`, and MTP (which failed) is off at start.
 
 ## Unreleased (17 November 2026): Scion's own recovery
 

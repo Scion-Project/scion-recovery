@@ -32,7 +32,7 @@ back and compares. One write at a time: `/tmp/scion-write.lock`, shared by the G
 
 TWRP's own pages are held to the same list where TWRP's configuration allows it (`scripts/fstab.py`, at build
 time): `/efs` and `/modem` (RADIO) are out of TWRP's fstab; so is `/data` (USERDATA, where the iOS root lives:
-TWRP 3.7.0 wipes `/data` by its mount point) and `/system` (SYSTEM holds iOS 16.5's disk, not ext4); the only
+TWRP 3.7.0 wipes `/data` by its mount point); the only
 image lines left are BOOT and MISC; every file system line says `canbewiped=0;wipeingui=0;wipeduringfactoryreset=0`,
 so TWRP's Wipe and factory reset list nothing; `/cache` holds TWRP's settings and logs. The home pages have no
 Wipe or Restore button, Partition SD Card has no swipe, and `scripts/theme.py lint` fails the build if a page
