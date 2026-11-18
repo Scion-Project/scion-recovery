@@ -82,7 +82,7 @@ case $fmt in *"[lzma]"*|*": lzma"*) ;; *) echo "stock ramdisk is not LZMA ($fmt)
 #    every stock entry keeps its mode, owner and content.
 cp stock/ramdisk.cpio ramdisk.cpio
 O=$HERE/overlay
-for f in "$O/sbin/scion" "$O/sbin/scion-bootlogs" "$O/sbin/scion-net" "$O/sbin/scion-udhcpc" "$O/init.recovery.samsungexynos9810.rc"; do
+for f in "$O/sbin/scion" "$O/sbin/scion-bootlogs" "$O/sbin/scion-net" "$O/sbin/scion-udhcpc" "$O/sbin/scion-report" "$O/init.recovery.samsungexynos9810.rc"; do
 	[ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
 done
 for b in hfsfuse hfsdump; do [ -f "$HFS_BIN/$b" ] || { echo "missing $HFS_BIN/$b" >&2; exit 1; }; done
@@ -139,6 +139,7 @@ python3 "$HERE/scripts/fstab.py" check "$O/etc/scion-partitions.conf" recovery.f
 "$MAGISKBOOT" cpio ramdisk.cpio \
 	"add 0755 sbin/scion-net $O/sbin/scion-net" \
 	"add 0755 sbin/scion-udhcpc $O/sbin/scion-udhcpc" \
+	"add 0755 sbin/scion-report $O/sbin/scion-report" \
 	"mkdir 0755 scion/bin" \
 	"add 0755 scion/bin/wpa_supplicant $NET_BIN/wpa_supplicant" \
 	"add 0755 scion/bin/wpa_cli $NET_BIN/wpa_cli" \

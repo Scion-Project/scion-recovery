@@ -1,8 +1,9 @@
 <!-- SPDX-License-Identifier: MIT-0 -->
 # Privacy: crash and boot reports
 
-Crash and boot reporting is **planned and opt-in**. It is not in any Scion build yet. This page says what it
-would do, so that it can be checked against the code when it ships.
+Crash and boot reporting is **opt-in**. Scion recovery 5 asks once, the first time Wi-Fi works (Scion settings >
+Crash reports changes the answer, kept in `/cache/scion/report-consent`). The code: `overlay/sbin/scion-report`
+(builds and scrubs a report on the phone) and `scion-net report-send` (sends it, only after Yes).
 
 ## The question
 
