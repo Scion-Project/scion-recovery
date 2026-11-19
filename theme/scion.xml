@@ -28,7 +28,13 @@
 		<variable name="scion_section2_y" value="1150"/>
 		<variable name="scion_twrp_row1_y" value="1210"/>
 		<variable name="scion_twrp_row2_y" value="1360"/>
+		<!-- TWRP row: four 225-wide buttons on the same left and right edges as the two columns of half buttons above. -->
+		<variable name="scion_q1_x" value="72"/>
+		<variable name="scion_q2_x" value="309"/>
+		<variable name="scion_q3_x" value="545"/>
+		<variable name="scion_q4_x" value="782"/>
 		<variable name="scion_footer_y" value="1560"/>
+		<variable name="scion_build_y" value="1625"/>
 		<variable name="scion_list_y" value="300"/>
 		<variable name="scion_list_h" value="1000"/>
 		<variable name="scion_note_y" value="1340"/>
@@ -56,6 +62,16 @@
 	</variables>
 
 	<styles>
+		<!-- Every Scion list: TWRP's advanced_listbox without its slider-handle icon (it drew a green
+		     blob over the first letter), the same rows as the Wi-Fi network list. -->
+		<style name="scion_list">
+			<highlight color="%fileselector_highlight_color%"/>
+			<fastscroll linecolor="%fileselector_linecolor%" rectcolor="%accent_color%" w="%fastscroll_w%" linew="%fastscroll_linew%" rectw="%fastscroll_rectw%" recth="%fastscroll_recth%"/>
+			<separator color="%fileselector_linecolor%" height="%fileselector_separatorheight%"/>
+			<dimensions lineh="%slidervalue_lineh%" linepadding="%slidervalue_padding%" sliderw="%slidervalue_sliderw%" sliderh="%slidervalue_sliderh%"/>
+			<background color="%background_color%"/>
+			<font resource="font_m" spacing="%fileselector_spacing%" color="%text_color%" highlightcolor="%accent_color%"/>
+		</style>
 		<!-- Wi-Fi's status line: a one-row card, no header, no icon, no highlight. -->
 		<style name="scion_status">
 			<highlight color="%scion_header_color%"/>
@@ -162,7 +178,7 @@
 			</text>
 
 			<button style="button_quarter_width">
-				<placement x="%indent%" y="%scion_twrp_row1_y%"/>
+				<placement x="%scion_q1_x%" y="%scion_twrp_row1_y%"/>
 				<text>{@install_btn=Install}</text>
 				<actions>
 					<action function="queueclear"/>
@@ -172,31 +188,31 @@
 			</button>
 
 			<button style="button_quarter_width">
-				<placement x="%btn4_col2_x%" y="%scion_twrp_row1_y%"/>
+				<placement x="%scion_q2_x%" y="%scion_twrp_row1_y%"/>
 				<text>{@backup_btn=Backup}</text>
 				<action function="page">backup</action>
 			</button>
 
 			<button style="button_quarter_width">
-				<placement x="%btn4_col3_x%" y="%scion_twrp_row1_y%"/>
+				<placement x="%scion_q3_x%" y="%scion_twrp_row1_y%"/>
 				<text>{@mount_btn=Mount}</text>
 				<action function="page">mount</action>
 			</button>
 
 			<button style="button_quarter_width">
-				<placement x="%btn4_col4_x%" y="%scion_twrp_row1_y%"/>
+				<placement x="%scion_q4_x%" y="%scion_twrp_row1_y%"/>
 				<text>{@settings_btn=Settings}</text>
 				<action function="page">settings</action>
 			</button>
 
 			<button style="button_quarter_width">
-				<placement x="%indent%" y="%scion_twrp_row2_y%"/>
+				<placement x="%scion_q1_x%" y="%scion_twrp_row2_y%"/>
 				<text>{@advanced_btn=Advanced}</text>
 				<action function="page">advanced</action>
 			</button>
 
 			<button style="button_quarter_width">
-				<placement x="%btn4_col2_x%" y="%scion_twrp_row2_y%"/>
+				<placement x="%scion_q2_x%" y="%scion_twrp_row2_y%"/>
 				<text>{@reboot_btn=Reboot}</text>
 				<action function="page">reboot</action>
 			</button>
@@ -204,6 +220,11 @@
 			<text style="text_s">
 				<placement x="%center_x%" y="%scion_footer_y%" placement="5"/>
 				<text>Scion's actions write BOOT and USERDATA only.</text>
+			</text>
+
+			<text style="text_s">
+				<placement x="%center_x%" y="%scion_build_y%" placement="5"/>
+				<text>Scion recovery 5 · build @SCION_BUILD@</text>
 			</text>
 
 			<action>
@@ -378,7 +399,7 @@
 				<text>Read only: nothing on the phone is changed</text>
 			</text>
 
-			<listbox style="advanced_listbox">
+			<listbox style="scion_list">
 				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
 
 				<listitem name="Save the logs of the last run">
@@ -441,7 +462,7 @@
 				<text>HFS Plus and APFS, read only</text>
 			</text>
 
-			<listbox style="advanced_listbox">
+			<listbox style="scion_list">
 				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
 
 				<listitem name="Mount iOS's /private/var (read only)">
@@ -573,8 +594,18 @@
 			</action>
 
 			<action>
+				<conditions>
+					<condition var1="tw_scion_pick" var2="write"/>
+				</conditions>
 				<touch key="back"/>
-				<action function="page">main</action>
+				<action function="page">scion_install</action>
+			</action>
+			<action>
+				<conditions>
+					<condition var1="tw_scion_pick" var2="restore"/>
+				</conditions>
+				<touch key="back"/>
+				<action function="page">scion_backup</action>
 			</action>
 
 			<action>
@@ -636,7 +667,7 @@
 
 			<action>
 				<touch key="back"/>
-				<action function="page">main</action>
+				<action function="page">scion_install</action>
 			</action>
 
 			<action>
@@ -661,7 +692,7 @@
 				<text>Writes USERDATA or BOOT, nothing else</text>
 			</text>
 
-			<listbox style="advanced_listbox">
+			<listbox style="scion_list">
 				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
 
 				<listitem name="Over Wi-Fi: download, check, install">
@@ -737,7 +768,7 @@
 				<text>Chooses what BOOT starts</text>
 			</text>
 
-			<listbox style="advanced_listbox">
+			<listbox style="scion_list">
 				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
 
 				<listitem name="Start Android next">
@@ -847,7 +878,7 @@
 				<text>Copies go to the SD card or USB drive</text>
 			</text>
 
-			<listbox style="advanced_listbox">
+			<listbox style="scion_list">
 				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
 
 				<listitem name="Back up the iOS root or var (USERDATA)">
@@ -919,7 +950,7 @@
 				<text>From a computer, over USB, instead of adb</text>
 			</text>
 
-			<listbox style="advanced_listbox">
+			<listbox style="scion_list">
 				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_fb_list_h%"/>
 
 				<listitem name="Start fastboot (adb stops)">
@@ -1003,7 +1034,7 @@
 				<data variable="tw_scion_advanced"/>
 			</checkbox>
 
-			<listbox style="advanced_listbox">
+			<listbox style="scion_list">
 				<placement x="%indent%" y="%scion_list2_y%" w="%content_width%" h="%scion_list2_h%"/>
 
 				<listitem name="Wi-Fi">
@@ -1147,7 +1178,7 @@
 
 			<action>
 				<touch key="back"/>
-				<action function="page">main</action>
+				<action function="page">scion_settings</action>
 			</action>
 
 			<action>
@@ -1433,7 +1464,7 @@
 
 			<action>
 				<touch key="back"/>
-				<action function="page">scion_wifi</action>
+				<action function="page">scion_settings</action>
 			</action>
 
 			<action>
@@ -1463,7 +1494,7 @@
 				<text>One step at a time, top to bottom</text>
 			</text>
 
-			<listbox style="advanced_listbox">
+			<listbox style="scion_list">
 				<placement x="%indent%" y="%scion_list_y%" w="%content_width%" h="%scion_list_h%"/>
 
 				<listitem name="1. Wi-Fi: scan, then join a network">
@@ -1496,7 +1527,7 @@
 						<action function="set">tw_action_text1=Install the update</action>
 						<action function="set">tw_text1=The update downloaded in step 3</action>
 						<action function="set">tw_text2=ERASES USERDATA, then writes BOOT</action>
-						<action function="set">tw_text3=Battery 30 % or charging; all read back</action>
+						<action function="set">tw_text3=Battery at least 30 percent, or charging</action>
 						<action function="set">tw_slider_text=Swipe to install</action>
 						<action function="set">tw_action_param=/sbin/scion-net update-install --yes</action>
 						<action function="page">scion_confirm</action>
@@ -1532,7 +1563,7 @@
 
 			<action>
 				<touch key="back"/>
-				<action function="page">main</action>
+				<action function="page">scion_install</action>
 			</action>
 
 			<action>

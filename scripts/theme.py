@@ -136,13 +136,22 @@ def edit_portrait(text):
     # TWRP's first page at start can be system_readonly (before Scion's home): the
     # same MTP fix as main2's (a stale persisted tw_mtp_enabled=0 means no USB).
     text = once(text, '<page name="system_readonly">\n\t\t\t<template name="page"/>\n',
-                '<page name="system_readonly">\n\t\t\t<template name="page"/>\n\n' + MTP_ON, "portrait.xml system_readonly")
+                '<page name="system_readonly">\n\t\t\t<template name="page"/>\n\n' + MTP_ON + SYSRO_SKIP, "portrait.xml system_readonly")
     return text
 
 
 MTP_ON = ('\t\t\t<action>\n\t\t\t\t<condition var1="tw_mtp_enabled" op="!=" var2="1"/>\n\t\t\t\t<actions>\n'
           '\t\t\t\t\t<action function="set">tw_mtp_enabled=1</action>\n\t\t\t\t\t<action function="startmtp"/>\n'
           '\t\t\t\t</actions>\n\t\t\t</action>\n')
+
+
+# Scion's SYSTEM is iOS 16.5's disk, not Android's: "Keep System Read only?" has nothing to ask. The page
+# answers itself the way its Keep Read Only button does (read only, never ask again) and ends at once.
+SYSRO_SKIP = ('\t\t\t<action>\n\t\t\t\t<actions>\n'
+              '\t\t\t\t\t<action function="set">tw_mount_system_ro=1</action>\n'
+              '\t\t\t\t\t<action function="set">tw_never_show_system_ro_page=1</action>\n'
+              '\t\t\t\t\t<action function="set">tw_page_done=1</action>\n'
+              '\t\t\t\t</actions>\n\t\t\t</action>\n')
 
 
 def recolour(src, dst, name):
@@ -197,9 +206,23 @@ def split_variables(scion):
     return scion[:a] + scion[b:].lstrip("\n"), "".join("\t" + x.strip().join(["\t", "\n"]) for x in lines)
 
 
+def build_id(theme_dir):
+    """The short git sha shown in the home page's footer (SCION_BUILD overrides; "dev" outside git)."""
+    env = os.environ.get("SCION_BUILD")
+    if env:
+        return re.sub(r"[^0-9A-Za-z.-]", "", env)[:12] or "dev"
+    try:
+        out = subprocess.run(["git", "-C", theme_dir, "rev-parse", "--short=7", "HEAD"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        return out or "dev"
+    except (OSError, subprocess.CalledProcessError):
+        return "dev"
+
+
 def apply(stock, out, theme_dir):
     os.makedirs(os.path.join(out, "images"), exist_ok=True)
     scion, scion_vars = split_variables(open(os.path.join(theme_dir, "scion.xml")).read())
+    scion = scion.replace("@SCION_BUILD@", build_id(theme_dir))
     ui = edit_ui(open(os.path.join(stock, "ui.xml")).read())
     ui = once(ui, "\t</variables>", scion_vars + "\t</variables>", "ui.xml variables end (scion.xml's)")
     open(os.path.join(out, "ui.xml"), "w").write(ui)
@@ -253,11 +276,11 @@ ALLOWED_DANGEROUS = {
 # min(1440/1080, 2960/1920) and FreeType's 300 dpi (x 300/288), so a line too
 # long for the 1080-wide design is cut off at the screen's edge.
 FONT_SIZES = {"font_l": 54, "font_m": 42, "font_s": 36}
-STYLE_FONT = {"text_l": "font_l", "text_m": "font_m", "text_m_accent": "font_m", "text_s": "font_s",
+STYLE_FONT = {"scion_list": "font_m", "scion_netlist": "font_m", "text_l": "font_l", "text_m": "font_m", "text_m_accent": "font_m", "text_s": "font_s",
               "main_button_half_height": "font_m", "button_quarter_width": "font_m",
               "advanced_listbox": "font_m", "checkbox": "font_m"}
 STYLE_WIDTH = {"main_button_half_height": 470, "button_quarter_width": 225,
-               "advanced_listbox": 900, "checkbox": 920}
+               "advanced_listbox": 900, "scion_list": 930, "checkbox": 920}
 RIGHT_EDGE = 1020
 
 
@@ -272,7 +295,7 @@ def lint_text(root, variables, font_file):
             if font is None or pl is None:
                 continue
             if el.tag == "listbox":
-                lines = [(i.get("name") or "", STYLE_WIDTH["advanced_listbox"]) for i in el.iter("listitem")]
+                lines = [(i.get("name") or "", STYLE_WIDTH.get(el.get("style"), 900)) for i in el.iter("listitem")]
             else:
                 t = el.find("text")
                 if t is None:
@@ -285,11 +308,51 @@ def lint_text(root, variables, font_file):
                 lines = [(re.sub(r"\{@[a-z0-9_]+=(.*)\}", r"\1", t.text or ""), room)]
             for text, room in lines:
                 if "%" in re.sub(r"%tw_version%", "", text):
-                    continue
+                    continue  # variable references are checked by lint_labels; their width is not known here
                 w = fonts[font].getlength(text.replace("%tw_version%", "3.7.0_9-0")) * 300 / 288
                 if w > room:
                     errors.append("scion.xml: %s: %r is %d wide, room for %d: it would be cut off"
                                   % (page.get("name"), text, w, room))
+    return errors
+
+
+def lint_labels(root, variables):
+    """The '%' trap: TWRP reads %name% in any label as a variable and a lone % breaks the page (it once broke
+    the Wi-Fi join command). Every label may hold only %name% references to a defined or tw_ variable."""
+    errors = []
+    for page in root.iter("page"):
+        labels = [t.text or "" for t in page.iter("text")] + [i.get("name") or "" for i in page.iter("listitem")]
+        for text in labels:
+            for ref in re.findall(r"%([^%\s]*)%", text):
+                if not (ref in variables or ref.startswith("tw_")):
+                    errors.append("scion.xml: %s: label %r uses undefined variable %%%s%%" % (page.get("name"), text, ref))
+            if "%" in re.sub(r"%[A-Za-z0-9_]+%", "", text):
+                errors.append("scion.xml: %s: label %r has a stray %% (write 'percent')" % (page.get("name"), text))
+    return errors
+
+
+NO_NAV = {"scion_go", "scion_run"}   # a redirect and the running console: nothing to leave from
+
+
+def lint_structure(root, styles):
+    """Scion pages: every button has a fill or an image; every page has a home key and a way back."""
+    errors = []
+    for page in root.iter("page"):
+        name = page.get("name")
+        for b in page.iter("button"):
+            st = styles.get(b.get("style"))
+            filled = any(c.tag in ("image", "fill") for c in b) or \
+                (st is not None and any(c.tag in ("image", "fill") for c in st))
+            if not filled:
+                errors.append("scion.xml: page %s: button %r has no fill or image (style %s)"
+                              % (name, (b.findtext("text") or "").strip(), b.get("style")))
+        if name in NO_NAV:
+            continue
+        keys = {t.get("key") for t in page.iter("touch")}
+        if "home" not in keys:
+            errors.append("scion.xml: page %s has no home key" % name)
+        if name != "main2" and "back" not in keys:
+            errors.append("scion.xml: page %s has no back key" % name)
     return errors
 
 
@@ -310,11 +373,6 @@ def lint_safety(trees):
                 for el in page.iter("action"):
                     if el.get("function") == "page" and (el.text or "").strip() in ("wipe", "restore"):
                         errors.append("%s: %s leads to TWRP's %s page" % (fname, name, el.text.strip()))
-        if fname == "scion.xml":
-            for page in trees[fname].iter("page"):
-                if page.find("template") is not None and page.get("name") != "scion_run" and \
-                        not any(t.get("key") == "home" for t in page.iter("touch")):
-                    errors.append("scion.xml: page %s has no home key" % page.get("name"))
     return errors
 
 
@@ -385,6 +443,9 @@ def lint(twres):
     for root in main:
         for v in root.iter("variables"):
             varvals.update({x.get("name"): x.get("value") for x in v})
+    sstyles = {st.get("name"): st for r in main for st in r.iter("style") if st.get("name")}
+    errors += lint_labels(trees["scion.xml"], variables)
+    errors += lint_structure(trees["scion.xml"], sstyles)
     errors += lint_text(trees["scion.xml"], varvals, os.path.join(twres, "fonts", "RobotoCondensed-Regular.ttf"))
     if "main2" not in pages or "main" not in pages:
         errors.append("main/main2 pages missing")
